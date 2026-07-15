@@ -1,0 +1,564 @@
+openapi: 3.0.3
+info:
+  title: 知识管理系统 V1.0 API
+  description: |
+    基于 GBrain 内核的通用知识管理系统 V1.0 接口规范。
+    提供知识库管理、草稿审核、冲突处理、检索、变更回调等能力。
+    同时保留 MCP 接口供 AI 平台调用，REST API 用于业务系统与 Web UI 对接。
+  version: 1.0.0
+  contact:
+    name: KnowledgeOS Team
+
+servers:
+  - url: http://localhost:3000
+    description: 本地开发环境
+
+paths:
+  /api/source-upload:
+    post:
+      summary: 源数据上传
+      description: 上传 PRD、代码、缺陷、执行结果等源数据文件到知识库
+      tags:
+        - 源数据管理
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [prd, code, defect, report]
+                  description: 数据类型
+                file:
+                  type: string
+                  format: binary
+                  description: 上传文件
+                note:
+                  type: string
+                  description: 备注
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 参数错误
+        '500':
+          description: 服务器内部错误
+
+  /api/confirm:
+    post:
+      summary: 用户确认操作
+      description: 对草稿执行入库或丢弃等确认操作
+      tags:
+        - 草稿管理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [draftId, action]
+              properties:
+                draftId:
+                  type: string
+                  description: 草稿 ID
+                action:
+                  type: string
+                  enum: [commit, discard]
+                  description: 操作类型
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /api/brain:
+    get:
+      summary: 获取知识库页面列表
+      description: 浏览 Brain 仓库中的页面，支持按类型、分类筛选
+      tags:
+        - 知识库浏览
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [quality-rule, defect, project-wiki, test-case]
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: keyword
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 页面列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BrainPage'
+
+  /api/brain/{pageId}:
+    get:
+      summary: 获取知识库页面详情
+      tags:
+        - 知识库浏览
+      parameters:
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 页面详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrainPageDetail'
+
+  /api/brain/batch-read:
+    post:
+      summary: 批量读取知识库页面
+      description: 根据 ID 列表批量读取 Brain 页面
+      tags:
+        - 知识库批量读写
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pageIds]
+              properties:
+                pageIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: 批量读取结果
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BrainPageDetail'
+
+  /api/brain/batch-write:
+    post:
+      summary: 批量写入知识库页面
+      description: 批量导入或更新 Brain 页面
+      tags:
+        - 知识库批量读写
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pages]
+              properties:
+                pages:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/BrainPageInput'
+      responses:
+        '200':
+          description: 批量写入结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /api/search:
+    post:
+      summary: 全量检索
+      description: 支持 RRF 混合搜索、关键词搜索、知识图谱查询
+      tags:
+        - 检索
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query, mode]
+              properties:
+                query:
+                  type: string
+                  description: 查询内容
+                mode:
+                  type: string
+                  enum: [rrf, keyword, graph]
+                  description: 检索模式
+                limit:
+                  type: integer
+                  default: 10
+                  description: 返回结果数量
+      responses:
+        '200':
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResult'
+
+  /api/drafts:
+    get:
+      summary: 获取草稿列表
+      description: 获取待审核草稿列表
+      tags:
+        - 草稿管理
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, conflict, merged, discarded, rejected]
+      responses:
+        '200':
+          description: 草稿列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Draft'
+
+  /api/conflicts:
+    get:
+      summary: 获取冲突列表
+      description: 获取待处理冲突列表
+      tags:
+        - 冲突处理
+      responses:
+        '200':
+          description: 冲突列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conflict'
+
+  /api/conflicts/{conflictId}/resolve:
+    post:
+      summary: 处理冲突
+      description: 对冲突执行合并、覆盖或丢弃操作
+      tags:
+        - 冲突处理
+      parameters:
+        - name: conflictId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution]
+              properties:
+                resolution:
+                  type: string
+                  enum: [merge, overwrite, discard]
+      responses:
+        '200':
+          description: 处理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /api/audit:
+    get:
+      summary: 获取审计日志
+      description: 获取操作审计日志
+      tags:
+        - 审计日志
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: startTime
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endTime
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: 审计日志列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+  /api/dashboard:
+    get:
+      summary: 全局操作日志统计面板
+      description: 返回入库数量、草稿堆积量、冲突次数、检索频次等统计指标
+      tags:
+        - 运维监控
+      responses:
+        '200':
+          description: 统计面板数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+
+  /api/verify-search:
+    post:
+      summary: 验证性推理测试
+      description: 输入测试问题，调用知识库做单次检索
+      tags:
+        - 检索
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question:
+                  type: string
+                  description: 测试问题
+      responses:
+        '200':
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResult'
+
+  /api/webhook/register:
+    post:
+      summary: 注册变更回调
+      description: 注册知识库变更时的回调地址
+      tags:
+        - 变更回调
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: 回调地址
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum: [page_created, page_updated, draft_committed, conflict_detected]
+      responses:
+        '200':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /api/webhook/callback:
+    post:
+      summary: 变更回调触发（内部使用）
+      description: 知识库变更时向已注册地址推送回调
+      tags:
+        - 变更回调
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookPayload'
+      responses:
+        '200':
+          description: 回调成功
+
+components:
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+
+    BrainPage:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        type:
+          type: string
+        category:
+          type: string
+        updated:
+          type: string
+        status:
+          type: string
+
+    BrainPageDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        type:
+          type: string
+        category:
+          type: string
+        content:
+          type: string
+        frontmatter:
+          type: object
+        updated:
+          type: string
+        status:
+          type: string
+
+    BrainPageInput:
+      type: object
+      required: [id, title, type, content]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        type:
+          type: string
+        category:
+          type: string
+        content:
+          type: string
+        frontmatter:
+          type: object
+
+    SearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        type:
+          type: string
+        score:
+          type: number
+        snippet:
+          type: string
+
+    Draft:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+
+    Conflict:
+      type: object
+      properties:
+        id:
+          type: string
+        draftId:
+          type: string
+        type:
+          type: string
+        existingRule:
+          type: string
+        newRule:
+          type: string
+        status:
+          type: string
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+        action:
+          type: string
+        operator:
+          type: string
+        target:
+          type: string
+        detail:
+          type: string
+        createdAt:
+          type: string
+
+    DashboardStats:
+      type: object
+      properties:
+        commitCount:
+          type: integer
+          description: 入库数量
+        pendingDraftCount:
+          type: integer
+          description: 草稿堆积量
+        pendingConflictCount:
+          type: integer
+          description: 冲突次数
+        searchCount:
+          type: integer
+          description: 检索频次
+        qualityScoreAvg:
+          type: number
+          description: 平均质量评分
+
+    WebhookPayload:
+      type: object
+      properties:
+        event:
+          type: string
+        timestamp:
+          type: string
+        data:
+          type: object
