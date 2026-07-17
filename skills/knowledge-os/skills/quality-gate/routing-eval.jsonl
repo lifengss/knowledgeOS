@@ -1,0 +1,4 @@
+{"intent": "质量检查", "expected_skill": "quality-gate"}
+{"intent": "质量门控", "expected_skill": "quality-gate"}
+{"intent": "评分草稿", "expected_skill": "quality-gate"}
+{"intent": "quality check", "expected_skill": "quality-gate"}

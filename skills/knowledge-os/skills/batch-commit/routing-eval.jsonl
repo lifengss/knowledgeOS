@@ -1,0 +1,3 @@
+{"intent": "批量入库", "expected_skill": "batch-commit"}
+{"intent": "批量确认", "expected_skill": "batch-commit"}
+{"intent": "batch commit", "expected_skill": "batch-commit"}

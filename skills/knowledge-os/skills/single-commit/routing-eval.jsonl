@@ -1,0 +1,3 @@
+{"intent": "单条入库", "expected_skill": "single-commit"}
+{"intent": "单条确认", "expected_skill": "single-commit"}
+{"intent": "single commit", "expected_skill": "single-commit"}

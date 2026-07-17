@@ -1,0 +1,4 @@
+{"intent": "检测冲突", "expected_skill": "conflict-detector"}
+{"intent": "检查规则冲突", "expected_skill": "conflict-detector"}
+{"intent": "入库前冲突检测", "expected_skill": "conflict-detector"}
+{"intent": "detect conflicts", "expected_skill": "conflict-detector"}

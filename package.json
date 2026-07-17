@@ -3,14 +3,7 @@
   "version": "1.0.0",
   "description": "AI 测试用例知识闭环系统 - 基于 GBrain 内核",
   "engines": {
-    "bun": ">=1.0",
-    "node": ">=20.0"
-  },
-  "dependencies": {
-    "better-sqlite3": "^11.0.0"
-  },
-  "devDependencies": {
-    "vitest": "^1.6.0"
+    "bun": ">=1.0"
   },
   "scripts": {
     "init": "bash scripts/init-brain.sh",
@@ -19,6 +12,6 @@
     "cleanup": "bash scripts/cleanup-stale-drafts.sh",
     "alert": "bash scripts/alert-monitor.sh",
     "compat-check": "bash scripts/compat-check.sh",
-    "test": "node --test"
+    "test": "pytest"
   }
 }

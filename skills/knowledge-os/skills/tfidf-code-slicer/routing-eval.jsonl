@@ -1,0 +1,5 @@
+{"intent": "解析这个代码文件", "expected_skill": "tfidf-code-slicer"}
+{"intent": "提取接口和调用关系", "expected_skill": "tfidf-code-slicer"}
+{"intent": "TF-IDF 代码切片", "expected_skill": "tfidf-code-slicer"}
+{"intent": "slice code", "expected_skill": "tfidf-code-slicer"}
+{"intent": "分析代码依赖", "expected_skill": "tfidf-code-slicer"}

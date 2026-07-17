@@ -1,0 +1,28 @@
+{
+  "api_version": "gbrain-skillpack-v1",
+  "name": "knowledge-os",
+  "version": "0.1.0",
+  "description": "知识管理系统 V1.0 核心 skillpack：冲突检测、质量门控、双通路入库、API 图谱、知识查询/校验",
+  "author": "KnowledgeOS Team",
+  "license": "MIT",
+  "homepage": "https://github.com/knowledge-os/knowledge-os-skillpack",
+  "gbrain_min_version": "0.42.0",
+  "skills": [
+    "skills/tfidf-code-slicer",
+    "skills/api-graph-builder",
+    "skills/conflict-detector",
+    "skills/quality-gate",
+    "skills/batch-commit",
+    "skills/single-commit",
+    "skills/case-generator",
+    "skills/case-validator"
+  ],
+  "shared_deps": [],
+  "excluded_from_install": [],
+  "unit_tests": ["test/**/*.test.ts"],
+  "routing_evals": ["skills/*/routing-eval.jsonl"],
+  "runbooks": {
+    "install": "runbooks/bootstrap.md"
+  },
+  "changelog": "CHANGELOG.md"
+}

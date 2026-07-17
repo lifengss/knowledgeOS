@@ -1,0 +1,19 @@
+{
+  "api_version": "gbrain-skillpack-v1",
+  "name": "script-check-skill",
+  "version": "0.1.0",
+  "description": "检查智能体创建的脚本文件与 V1.0 技术方案和 API 接口文档的一致性",
+  "author": "KnowledgeOS Team",
+  "license": "MIT",
+  "homepage": "https://github.com/knowledge-os/script-check-skill",
+  "gbrain_min_version": "0.42.0",
+  "skills": ["skills/script-check-skill"],
+  "shared_deps": [],
+  "excluded_from_install": [],
+  "unit_tests": ["test/**/*.test.ts"],
+  "routing_evals": ["skills/*/routing-eval.jsonl"],
+  "runbooks": {
+    "install": "runbooks/bootstrap.md"
+  },
+  "changelog": "CHANGELOG.md"
+}

@@ -1,0 +1,19 @@
+# 知识管理系统 V1.0 Python 依赖
+# 安装：pip install -r requirements.txt
+
+# Web 框架
+flask>=3.0.0
+
+# MCP 协议
+mcp>=1.0.0
+
+# 环境变量
+python-dotenv>=1.0.0
+
+# 测试
+pytest>=8.0.0
+
+# 代码解析使用 Python 内置 ast 模块（Python 3.9+ 支持 ast.unparse）
+
+# HTTP 请求
+requests>=2.31.0

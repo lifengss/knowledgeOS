@@ -1,0 +1,8 @@
+{"intent": "检查这个脚本是否符合接口文档", "expected_skill": "script-check-skill"}
+{"intent": "验证函数名是否与 API 文档一致", "expected_skill": "script-check-skill"}
+{"intent": "检查新增的 API 是否需要更新文档", "expected_skill": "script-check-skill"}
+{"intent": "script check", "expected_skill": "script-check-skill"}
+{"intent": "代码一致性检查", "expected_skill": "script-check-skill"}
+{"intent": "接口一致性校验", "expected_skill": "script-check-skill"}
+{"intent": "帮我看看这个文件有没有不符合文档的地方", "expected_skill": "script-check-skill"}
+{"intent": "这个实现和 API 文档一致吗", "expected_skill": "script-check-skill"}

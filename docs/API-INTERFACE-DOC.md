@@ -670,27 +670,34 @@ gbrain serve --port 8101 --config agents/validator.json
 
 ### 4.1 注释规范
 
-所有 TypeScript/JavaScript 模块使用 JSDoc / TSDoc 注释：
+所有 Python 模块使用 Google Style Docstring 注释：
 
-```typescript
-/**
- * 函数简短描述
- * @param paramName 参数说明
- * @param options 可选参数说明
- * @returns 返回值说明
- * @throws 异常说明
- * @example
- * ```ts
- * const result = myFunction('value');
- * ```
- */
+```python
+def my_function(param_name: str, options: dict = None) -> str:
+    """函数简短描述。
+
+    Args:
+        param_name: 参数说明
+        options: 可选参数说明
+
+    Returns:
+        返回值说明
+
+    Raises:
+        ValueError: 异常说明
+
+    Example:
+        >>> result = my_function('value')
+    """
+    return result
+```
 ```
 
 ### 4.2 缓冲层模块
 
 #### DraftCache
 
-文件位置：`cache/draft-cache.ts`
+文件位置：`cache/draft_cache.py`
 
 ```typescript
 /**
@@ -920,7 +927,7 @@ export async function embedWithFallback(
 
 #### 兼容校验
 
-文件位置：`scripts/compat-check.ts`
+文件位置：`scripts/compat_check.py`
 
 ```typescript
 /**
@@ -932,7 +939,7 @@ export function runCompatCheck(): CompatCheckResult;
 
 #### 异常告警
 
-文件位置：`scripts/alert-monitor.ts`
+文件位置：`scripts/alert_monitor.py`
 
 ```typescript
 /**

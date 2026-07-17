@@ -1,0 +1,4 @@
+{"intent": "生成用例", "expected_skill": "case-generator"}
+{"intent": "查询知识库", "expected_skill": "case-generator"}
+{"intent": "获取知识上下文", "expected_skill": "case-generator"}
+{"intent": "generate test cases", "expected_skill": "case-generator"}

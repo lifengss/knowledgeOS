@@ -1,0 +1,4 @@
+{"intent": "更新 API 依赖图谱", "expected_skill": "api-graph-builder"}
+{"intent": "构建 API 图谱", "expected_skill": "api-graph-builder"}
+{"intent": "代码变更后更新图谱", "expected_skill": "api-graph-builder"}
+{"intent": "build api graph", "expected_skill": "api-graph-builder"}

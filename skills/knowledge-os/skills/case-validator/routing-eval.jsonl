@@ -1,0 +1,4 @@
+{"intent": "校验用例", "expected_skill": "case-validator"}
+{"intent": "知识校验", "expected_skill": "case-validator"}
+{"intent": "入库校验", "expected_skill": "case-validator"}
+{"intent": "validate test cases", "expected_skill": "case-validator"}
