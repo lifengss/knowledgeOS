@@ -17,7 +17,7 @@ V1.0 目标是：单人完整跑通 PRD 定义的知识闭环——**生成 → 
 | 能力 | 说明 |
 |------|------|
 | GBrain 内核 | 版本锁定 v0.16.4，Markdown + Git 存储，RRF 混合搜索，知识图谱自动连线 |
-| L2 知识缓冲层 | SQLite + better-sqlite3， drafts / conflicts / audit_log 三表 |
+| L2 知识缓冲层 | SQLite + Python sqlite3， drafts / conflicts / audit_log 三表 |
 | 双通路入库 | 批量确认（batch-commit）+ 单条确认（single-commit） |
 | 冲突检测 | 重复 / 矛盾 / 重叠规则识别，支持合并/覆盖/丢弃 |
 | 质量门控 | 基础规则校验与评分，低于 60 分拒绝入库 |
@@ -37,10 +37,10 @@ V1.0 目标是：单人完整跑通 PRD 定义的知识闭环——**生成 → 
 | 层 | 技术 |
 |----|------|
 | 内核 | GBrain v0.16.4 + PGLite |
-| 缓冲层 | SQLite + better-sqlite3 |
-| 运行时 | Bun 1.x（全链路 Node.js 兼容语法预留） |
-| TF-IDF | Python 3.10+ |
-| REST API | Node.js / Bun 标准 http 模块或 Express/Fastify |
+| 缓冲层 | SQLite + Python sqlite3（标准库） |
+| 运行时 | Python 3.10+（主运行时） |
+| REST API | Python Flask |
+| TF-IDF | Python 3.10+ ast 模块 |
 | SDK | Java（OkHttp + Gson）、Python（requests） |
 | Web UI | 基础 HTML/JS/CSS |
 
@@ -70,10 +70,11 @@ test-knowledge-system/
 
 ### 1. 环境准备
 
-- Bun >= 1.0
-- Node.js >= 20.0
-- Python >= 3.10
-- Git >= 2.30
+| 组件 | 版本要求 | 用途 |
+|------|----------|------|
+| Python | >= 3.10 | 自建代码主运行时（缓冲层、Skills、REST API） |
+| Bun | >= 1.0 | GBrain 内核运行时（仅内核依赖） |
+| Git | >= 2.30 | Brain 仓库版本管理 |
 
 ### 2. 安装 GBrain 内核
 
@@ -95,21 +96,21 @@ cp .env.example .env
 ### 4. 启动兼容校验
 
 ```bash
-bun run compat-check
-# 或
 bash scripts/compat-check.sh
+# 或 Windows PowerShell
+# powershell -File scripts/compat-check.ps1
 ```
 
-### 5. 初始化 Brain 仓库
+### 5. 初始化缓冲层数据库
 
 ```bash
-bun run init
+python scripts/init_cache.py
 ```
 
 ### 6. 启动服务
 
 ```bash
-bun run start
+bash scripts/start-agents.sh
 ```
 
 ### 7. 预览 Web UI

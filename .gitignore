@@ -29,3 +29,18 @@ build/
 
 # GBrain metadata
 brain/**/.brain/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Project temp
+.test_registry.json
+.codebuddy/
+
+# Test outputs
+tests/pytest_final.txt
+tests/server_log.txt

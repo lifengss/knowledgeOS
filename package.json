@@ -2,16 +2,21 @@
   "name": "test-knowledge-system",
   "version": "1.0.0",
   "description": "AI 测试用例知识闭环系统 - 基于 GBrain 内核",
-  "engines": {
-    "bun": ">=1.0"
-  },
+  "private": true,
   "scripts": {
-    "init": "bash scripts/init-brain.sh",
+    "init": "python scripts/init_cache.py",
     "start": "bash scripts/start-agents.sh",
+    "api": "node api/server.js",
+    "dev": "node api/server.js",
     "dream": "bash scripts/dream-cycle-cron.sh",
-    "cleanup": "bash scripts/cleanup-stale-drafts.sh",
-    "alert": "bash scripts/alert-monitor.sh",
+    "cleanup": "python scripts/cleanup_stale_drafts.py",
+    "alert": "python scripts/alert_monitor.py",
     "compat-check": "bash scripts/compat-check.sh",
     "test": "pytest"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "multer": "^2.2.0"
   }
 }

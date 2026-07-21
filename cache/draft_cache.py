@@ -207,3 +207,199 @@ class DraftCache:
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
         }
+
+
+# ---------------------------------------------------------------------------
+# 命令行接口（供 REST API 调用）
+# ---------------------------------------------------------------------------
+
+def cli():
+    import argparse
+    parser = argparse.ArgumentParser(description="DraftCache CLI")
+    parser.add_argument("--db", default=None, help="数据库路径")
+    sub = parser.add_subparsers(dest="cmd")
+
+    # list
+    p_list = sub.add_parser("list", help="列出草稿")
+    p_list.add_argument("--status", default=None)
+    p_list.add_argument("--source", default=None)
+    p_list.add_argument("--type", default=None)
+    p_list.add_argument("--limit", type=int, default=100)
+    p_list.add_argument("--offset", type=int, default=0)
+
+    # get
+    p_get = sub.add_parser("get", help="获取单个草稿")
+    p_get.add_argument("--id", required=True)
+
+    # add
+    p_add = sub.add_parser("add", help="添加草稿")
+    p_add.add_argument("--source", default="human_edit")
+    p_add.add_argument("--type", default="quality_rule")
+    p_add.add_argument("--title", default="未命名草稿")
+    p_add.add_argument("--content", default="")
+    p_add.add_argument("--metadata", default="{}")
+
+    # update-status
+    p_up = sub.add_parser("update-status", help="更新草稿状态")
+    p_up.add_argument("--id", required=True)
+    p_up.add_argument("--status", required=True)
+    p_up.add_argument("--score", type=int, default=None)
+
+    # list-audit
+    p_audit = sub.add_parser("list-audit", help="列出审计日志")
+    p_audit.add_argument("--action", default=None)
+    p_audit.add_argument("--operator", default=None)
+    p_audit.add_argument("--target", default=None)
+    p_audit.add_argument("--start-time", default=None)
+    p_audit.add_argument("--end-time", default=None)
+    p_audit.add_argument("--page", type=int, default=1)
+    p_audit.add_argument("--page-size", type=int, default=20)
+
+    # list-conflicts
+    p_conflicts = sub.add_parser("list-conflicts", help="列出冲突")
+    p_conflicts.add_argument("--status", default=None)
+    p_conflicts.add_argument("--limit", type=int, default=100)
+
+    # resolve-conflict
+    p_resolve = sub.add_parser("resolve-conflict", help="处理冲突")
+    p_resolve.add_argument("--id", required=True)
+    p_resolve.add_argument("--resolution", required=True)
+
+    # stats
+    p_stats = sub.add_parser("stats", help="获取统计")
+
+    args = parser.parse_args()
+    cache = DraftCache(args.db)
+
+    if args.cmd == "list":
+        filters = {}
+        if args.source:
+            filters["source"] = args.source
+        if args.type:
+            filters["type"] = args.type
+        if args.status:
+            drafts = cache.get_drafts_by_status(args.status, filters)
+        else:
+            # 获取全部草稿
+            cursor = cache._conn.execute(
+                "SELECT * FROM drafts ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (args.limit, args.offset)
+            )
+            drafts = [cache._row_to_draft(row) for row in cursor.fetchall()]
+        print(json.dumps(drafts, ensure_ascii=False))
+
+    elif args.cmd == "get":
+        draft = cache.get_draft_by_id(args.id)
+        print(json.dumps(draft, ensure_ascii=False))
+
+    elif args.cmd == "add":
+        draft_id = cache.add_draft({
+            "source": args.source,
+            "type": args.type,
+            "title": args.title,
+            "content": args.content,
+            "metadata": json.loads(args.metadata),
+        })
+        print(json.dumps({"id": draft_id}, ensure_ascii=False))
+
+    elif args.cmd == "update-status":
+        ok = cache.update_draft_status(args.id, args.status, args.score)
+        print(json.dumps({"success": ok}, ensure_ascii=False))
+
+    elif args.cmd == "list-audit":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.audit_log import AuditLog
+        audit = AuditLog(args.db)
+        filters = {
+            "page": args.page,
+            "pageSize": args.page_size,
+        }
+        if args.action:
+            filters["action"] = args.action
+        if args.operator:
+            filters["operator"] = args.operator
+        if args.target:
+            filters["target"] = args.target
+        if args.start_time:
+            filters["startTime"] = args.start_time
+        if args.end_time:
+            filters["endTime"] = args.end_time
+        result = audit.query(filters)
+        audit.close()
+        print(json.dumps(result, ensure_ascii=False))
+
+    elif args.cmd == "list-conflicts":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.conflict_queue import ConflictQueue
+        cq = ConflictQueue(args.db)
+        filters = {}
+        if args.status:
+            filters["type"] = args.status
+        conflicts = cq.get_pending_conflicts(filters)
+        cq.close()
+        print(json.dumps(conflicts, ensure_ascii=False))
+
+    elif args.cmd == "resolve-conflict":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.conflict_queue import ConflictQueue
+        cq = ConflictQueue(args.db)
+        ok = cq.resolve_conflict(args.id, args.resolution, "system")
+        # 返回处理后的冲突详情
+        conflict = cq.get_conflict_by_id(args.id) if ok else None
+        cq.close()
+        print(json.dumps({
+            "success": ok,
+            "resolution": args.resolution if ok else None,
+            "resolvedBy": "system" if ok else None,
+            "conflict": conflict
+        }, ensure_ascii=False))
+
+    elif args.cmd == "stats":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.audit_log import AuditLog
+        from cache.conflict_queue import ConflictQueue
+
+        cursor = cache._conn.execute("SELECT status, COUNT(*) FROM drafts GROUP BY status")
+        draft_stats = {row[0]: row[1] for row in cursor.fetchall()}
+        cursor = cache._conn.execute("SELECT COUNT(*) FROM drafts")
+        total_drafts = cursor.fetchone()[0]
+
+        cq = ConflictQueue(args.db)
+        pending_conflicts = len(cq.get_pending_conflicts())
+        cq.close()
+
+        audit = AuditLog(args.db)
+        dashboard_stats = audit.get_stats()
+        audit.close()
+
+        print(json.dumps({
+            "totalDrafts": total_drafts,
+            "pendingDrafts": draft_stats.get("pending", 0),
+            "approvedDrafts": draft_stats.get("approved", 0),
+            "mergedDrafts": draft_stats.get("merged", 0),
+            "discardedDrafts": draft_stats.get("discarded", 0),
+            "rejectedDrafts": draft_stats.get("rejected", 0),
+            "conflictDrafts": draft_stats.get("conflict", 0),
+            "totalPages": 0,
+            "totalRules": 0,
+            "totalCases": 0,
+            "totalDefects": 0,
+            "totalCommits": dashboard_stats.get("commitCount", draft_stats.get("merged", 0)),
+            "todayCommits": dashboard_stats.get("today", {}).get("commitCount", 0),
+            "weekCommits": dashboard_stats.get("thisWeek", {}).get("commitCount", 0),
+            "totalSearches": dashboard_stats.get("searchCount", 0),
+            "todaySearches": dashboard_stats.get("today", {}).get("searchCount", 0),
+            "weekSearches": dashboard_stats.get("thisWeek", {}).get("searchCount", 0),
+            "qualityScoreAvg": dashboard_stats.get("qualityScoreAvg", 0),
+            "totalConflicts": pending_conflicts,
+        }, ensure_ascii=False))
+
+    cache.close()
+
+
+if __name__ == "__main__":
+    cli()

@@ -239,6 +239,48 @@ tr:hover { background: #f8fafc; }
 }
 .tab.active { background: var(--primary); color: white; border-color: var(--primary); }
 
+/* 动态详情弹窗 */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+  padding: 24px;
+}
+.modal-box {
+  background: var(--card);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+  display: flex; flex-direction: column;
+}
+.modal-box .modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  flex-shrink: 0;
+}
+.modal-box .modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-box .modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 表格内链接 */
+table td a {
+  color: var(--primary);
+  text-decoration: none;
+}
+table td a:hover { text-decoration: underline; }
+
 @media (max-width: 768px) {
   .sidebar { width: 100%; position: relative; height: auto; }
   .main { margin-left: 0; }
