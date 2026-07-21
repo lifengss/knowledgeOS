@@ -86,6 +86,18 @@ app.get('/api/health', (req, res) => {
 // ---------------------------------------------------------------
 
 // GET /api/drafts - 获取草稿列表
+const projects = require('./projects');
+
+// 多项目：从请求解析 project 维度（query.project / body.project，默认 default）
+function resolveProject(req) {
+  const pid = (req.query && req.query.project) || (req.body && req.body.project) || projects.getDefaultProject().id;
+  return pid;
+}
+// 返回项目私有 + 共享的 Brain 目录（绝对路径，正斜杠），用于只读/搜索合并
+function brainDirsFor(pid) {
+  return projects.resolveBrainDirs(pid).map((d) => d.replace(/\\/g, '/'));
+}
+
 app.get('/api/drafts', async (req, res) => {
   try {
     const { status, source, type, limit = 100, offset = 0 } = req.query;
@@ -94,6 +106,7 @@ app.get('/api/drafts', async (req, res) => {
       'list',
       '--limit', String(limit),
       '--offset', String(offset),
+      '--project', resolveProject(req),
       ...(status ? ['--status', status] : []),
       ...(source ? ['--source', source] : []),
       ...(type ? ['--type', type] : [])
@@ -129,7 +142,8 @@ app.post('/api/drafts', async (req, res) => {
       '--type', type || 'quality_rule',
       '--title', title || '未命名草稿',
       '--content', content || '',
-      '--metadata', JSON.stringify(metadata || {})
+      '--metadata', JSON.stringify(metadata || {}),
+      '--project', resolveProject(req)
     ]);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -161,6 +175,7 @@ app.post('/api/drafts/:id/commit', async (req, res) => {
     const result = await callPython('skills/single_commit.py', [
       req.params.id,
       '--db-path', process.env.CACHE_DB_PATH || './cache/drafts.db',
+      '--project', resolveProject(req),
       ...(skip_conflict_check ? ['--skip-conflict-check'] : []),
       ...(skip_quality_gate ? ['--skip-quality-gate'] : [])
     ]);
@@ -176,6 +191,7 @@ app.post('/api/drafts/batch-commit', async (req, res) => {
     const { skip_conflict_check, skip_quality_gate } = req.body;
     const result = await callPython('skills/batch_commit.py', [
       '--db-path', process.env.CACHE_DB_PATH || './cache/drafts.db',
+      '--project', resolveProject(req),
       ...(skip_conflict_check ? ['--skip-conflict-check'] : []),
       ...(skip_quality_gate ? ['--skip-quality-gate'] : [])
     ]);
@@ -197,6 +213,7 @@ app.get('/api/conflicts', async (req, res) => {
       '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
       'list-conflicts',
       '--limit', String(limit),
+      '--project', resolveProject(req),
       ...(status ? ['--status', status] : [])
     ]);
     res.json({ success: true, data: result });
@@ -208,9 +225,10 @@ app.get('/api/conflicts', async (req, res) => {
 // POST /api/conflicts/detect - 触发冲突检测
 app.post('/api/conflicts/detect', async (req, res) => {
   try {
-    const result = await callPython('skills/conflict_detector.py', [
-      '--db-path', process.env.CACHE_DB_PATH || './cache/drafts.db'
-    ]);
+    const result = await callPython(      'skills/conflict_detector.py', [
+        '--db-path', process.env.CACHE_DB_PATH || './cache/drafts.db',
+        '--project', resolveProject(req)
+      ]);
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -241,7 +259,7 @@ app.put('/api/conflicts/:id/resolve', async (req, res) => {
 app.post('/api/quality-gate/check', async (req, res) => {
   try {
     const { draft_ids } = req.body;
-    const args = ['--db-path', process.env.CACHE_DB_PATH || './cache/drafts.db'];
+    const args = ['--db-path', process.env.CACHE_DB_PATH || './cache/drafts.db', '--project', resolveProject(req)];
     if (draft_ids) {
       args.push('--draft-ids', ...draft_ids.split(','));
     }
@@ -282,7 +300,8 @@ app.get('/api/stats', async (req, res) => {
   try {
     const result = await callPython('cache/draft_cache.py', [
       '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
-      'stats'
+      'stats',
+      '--project', resolveProject(req)
     ]);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -302,7 +321,8 @@ app.post('/api/search', async (req, res) => {
     const result = await callPython('skills/case_generator.py', [
       query || '',
       '--mode', mode,
-      '--limit', String(limit)
+      '--limit', String(limit),
+      '--brain-dirs', brainDirsFor(resolveProject(req)).join(',')
     ]);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -317,7 +337,8 @@ app.post('/api/generate-cases', async (req, res) => {
     const result = await callPython('skills/case_generator.py', [
       query || '',
       '--mode', 'query',
-      '--limit', String(limit)
+      '--limit', String(limit),
+      '--brain-dirs', brainDirsFor(resolveProject(req)).join(',')
     ]);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -341,7 +362,8 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
       const result = await callPython('skills/code_upload_parser.py', [
         '--input', req.file.path,
         '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
-        '--brain', process.env.BRAIN_REPO || './brain',
+        '--brain', projects.resolveBrainDir(req.body.project || 'default'),
+        '--project', req.body.project || 'default',
         '--note', note
       ]);
       // 清理 multer 暂存的上传文件
@@ -357,7 +379,8 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
         '--type', type || 'quality_rule',
         '--title', note || `上传: ${type}`,
         '--content', content || '',
-        '--metadata', JSON.stringify({ uploadType: type, note: note || '' })
+        '--metadata', JSON.stringify({ uploadType: type, note: note || '' }),
+        '--project', resolveProject(req)
       ]);
       res.json({ success: true, data: result });
     }
@@ -374,28 +397,36 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
 app.get('/api/brain/pages', async (req, res) => {
   try {
     const { category, limit = 100 } = req.query;
-    const brainRepo = process.env.BRAIN_REPO || './brain';
-    // 读取 brain 目录下的 Markdown 文件
+    const pid = resolveProject(req);
+    // 读取项目私有库 + 共享库(合并去重)
+    const brainDirs = brainDirsFor(pid);
     const pages = [];
     const categories = category ? [category] : ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases'];
+    const seen = new Set();
 
-    for (const cat of categories) {
-      const catPath = path.join(brainRepo, cat);
-      if (!fs.existsSync(catPath)) continue;
-      const files = fs.readdirSync(catPath).filter(f => f.endsWith('.md'));
-      for (const file of files.slice(0, Number(limit))) {
-        const filePath = path.join(catPath, file);
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const titleMatch = content.match(/^#\s+(.+)$/m);
-        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-        pages.push({
-          id: file.replace('.md', ''),
-          title: titleMatch ? titleMatch[1] : file,
-          category: cat,
-          filename: file,
-          frontmatter: frontmatterMatch ? frontmatterMatch[1] : '',
-          preview: content.slice(0, 200)
-        });
+    for (const bdir of brainDirs) {
+      for (const cat of categories) {
+        const catPath = path.join(bdir, cat);
+        if (!fs.existsSync(catPath)) continue;
+        const files = fs.readdirSync(catPath).filter(f => f.endsWith('.md'));
+        for (const file of files.slice(0, Number(limit))) {
+          const key = `${cat}/${file}`;
+          if (seen.has(key)) continue; // 共享库可能与私有库重复，私有优先
+          seen.add(key);
+          const filePath = path.join(catPath, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const titleMatch = content.match(/^#\s+(.+)$/m);
+          const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+          pages.push({
+            id: file.replace('.md', ''),
+            title: titleMatch ? titleMatch[1] : file,
+            category: cat,
+            filename: file,
+            repo: path.basename(bdir),
+            frontmatter: frontmatterMatch ? frontmatterMatch[1] : '',
+            preview: content.slice(0, 200)
+          });
+        }
       }
     }
     res.json({ success: true, data: pages });
@@ -407,13 +438,17 @@ app.get('/api/brain/pages', async (req, res) => {
 // GET /api/brain/pages/:category/:id - 获取单个页面内容
 app.get('/api/brain/pages/:category/:id', async (req, res) => {
   try {
-    const brainRepo = process.env.BRAIN_REPO || './brain';
-    const filePath = path.join(brainRepo, req.params.category, `${req.params.id}.md`);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ success: false, error: 'Page not found' });
+    const pid = resolveProject(req);
+    const { category, id } = req.params;
+    const brainDirs = brainDirsFor(pid);
+    for (const bdir of brainDirs) {
+      const filePath = path.join(bdir, category, `${id}.md`);
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return res.json({ success: true, data: { content, repo: path.basename(bdir) } });
+      }
     }
-    const content = fs.readFileSync(filePath, 'utf-8');
-    res.json({ success: true, data: { content } });
+    return res.status(404).json({ success: false, error: 'Page not found' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -426,7 +461,8 @@ app.get('/api/brain/pages/:category/:id', async (req, res) => {
 // GET /api/graph-data - 获取图谱节点和边数据
 app.get('/api/graph-data', async (req, res) => {
   try {
-    const brainRepo = process.env.BRAIN_REPO || './brain';
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
     const pwPath = path.join(brainRepo, 'project-wiki');
     if (!fs.existsSync(pwPath)) {
       return res.json({ success: true, data: { nodes: [], edges: [] } });

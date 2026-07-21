@@ -1,0 +1,19 @@
+{
+  "defaultProject": "default",
+  "sharedBrain": "brains/_shared",
+  "categories": ["quality-rules", "defect-experience", "project-wiki", "test-cases"],
+  "projects": [
+    {
+      "id": "default",
+      "name": "默认项目",
+      "brainPath": "brain",
+      "description": "默认知识库项目，包含已有的全部页面"
+    },
+    {
+      "id": "demo",
+      "name": "示例项目",
+      "brainPath": "brains/demo",
+      "description": "演示多项目隔离/共享的示例项目（初始为空）"
+    }
+  ]
+}

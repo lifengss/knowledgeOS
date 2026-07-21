@@ -49,3 +49,10 @@ tests/server_log.txt
 
 # Temp files
 temp/
+
+# UI / browser test artifacts
+ui-*.png
+ui-*.txt
+ui-*.snap
+ab-out.txt
+agent-browser-install.err

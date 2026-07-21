@@ -20,27 +20,38 @@ from skills.quality_gate import run_quality_gate
 
 DB_PATH = os.environ.get("CACHE_DB_PATH", str(PROJECT_DIR / "cache" / "drafts.db"))
 BRAIN_TYPE_MAP = {
-    "quality_rule": "quality-rule",
-    "defect_experience": "defect",
-    "test_case": "test-case",
+    "quality_rule": "quality-rules",
+    "defect_experience": "defect-experience",
+    "test_case": "test-cases",
     "project_wiki": "project-wiki",
 }
 
 
-def _write_to_brain(slug: str, content: str) -> bool:
-    """通过 gbrain put 写入页面。"""
+def _resolve_brain_dir(project_id: str = "default") -> Path:
+    """根据项目 ID 解析其私有 Brain 仓库目录（多项目隔离）。"""
+    pcfg = PROJECT_DIR / "config" / "projects.json"
+    if pcfg.exists():
+        try:
+            cfg = json.loads(pcfg.read_text(encoding="utf-8"))
+            proj = next((p for p in cfg["projects"] if p["id"] == project_id), cfg["projects"][0])
+            return PROJECT_DIR / proj["brainPath"]
+        except Exception:
+            pass
+    return PROJECT_DIR / "brain"
+
+
+def _write_to_brain(brain_dir: Path, slug: str, content: str) -> bool:
+    """将页面写入项目私有 Brain 仓库的对应分类目录（文件系统）。"""
     try:
-        result = subprocess.run(
-            ["gbrain", "put", slug],
-            input=content,
-            capture_output=True,
-            text=True,
-            check=True,
-            encoding="utf-8",
-        )
+        parts = slug.split("/")
+        category = parts[0] if len(parts) > 1 else "test-cases"
+        filename = parts[-1]
+        cat_dir = brain_dir / category
+        cat_dir.mkdir(parents=True, exist_ok=True)
+        (cat_dir / f"{filename}.md").write_text(content, encoding="utf-8")
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"[batch-commit] gbrain put {slug} 失败: {e.stderr}", file=sys.stderr)
+    except Exception as e:
+        print(f"[batch-commit] 写入 {slug} 失败: {e}", file=sys.stderr)
         return False
 
 
@@ -74,6 +85,7 @@ def batch_commit(
     operator: str = "system",
     skip_conflict_check: bool = False,
     skip_quality_gate: bool = False,
+    project: str = "default",
 ) -> dict[str, Any]:
     """批量入库。
 
@@ -88,6 +100,7 @@ def batch_commit(
         入库结果 { processedDrafts, committed, conflicts, rejected, committedPages }
     """
     db_path = db_path or DB_PATH
+    brain_dir = _resolve_brain_dir(project)
     draft_cache = DraftCache(db_path)
     audit_log = AuditLog(db_path)
 
@@ -101,7 +114,8 @@ def batch_commit(
                     drafts.append(d)
         else:
             cursor = draft_cache._conn.execute(
-                "SELECT * FROM drafts WHERE status IN ('pending', 'approved') ORDER BY created_at DESC"
+                "SELECT * FROM drafts WHERE status IN ('pending', 'approved') AND project_id = ? ORDER BY created_at DESC",
+                (project,)
             )
             drafts = [draft_cache._row_to_draft(row) for row in cursor.fetchall()]
 
@@ -119,7 +133,7 @@ def batch_commit(
         # 2. 冲突检测（前置）
         if not skip_conflict_check:
             conflict_result = detect_conflicts(
-                draft_ids=draft_ids_list, db_path=db_path, operator=operator
+                draft_ids=draft_ids_list, db_path=db_path, operator=operator, project=project
             )
             conflict_draft_ids = {c["draftId"] for c in conflict_result.get("conflicts", [])}
             # 过滤掉有冲突的草稿
@@ -136,6 +150,7 @@ def batch_commit(
                     draft_ids=[d["id"] for d in need_qg],
                     db_path=db_path,
                     operator=operator,
+                    project=project,
                 )
                 passed_ids = {p["draftId"] for p in quality_result.get("passed", [])}
                 drafts = [d for d in need_qg if d["id"] in passed_ids] + already_approved
@@ -158,7 +173,7 @@ def batch_commit(
             slug = f"{brain_type}/{draft_id}"
 
             page_content = _build_page_content(draft)
-            success = _write_to_brain(slug, page_content)
+            success = _write_to_brain(brain_dir, slug, page_content)
 
             if success:
                 draft_cache.update_draft_status(draft_id, "merged")
@@ -206,6 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--operator", default="system", help="操作人")
     parser.add_argument("--skip-conflict-check", action="store_true", help="跳过冲突检测")
     parser.add_argument("--skip-quality-gate", action="store_true", help="跳过质量门控")
+    parser.add_argument("--project", default="default", help="所属项目 ID")
     args = parser.parse_args()
 
     result = batch_commit(
@@ -214,5 +230,6 @@ if __name__ == "__main__":
         operator=args.operator,
         skip_conflict_check=args.skip_conflict_check,
         skip_quality_gate=args.skip_quality_gate,
+        project=args.project,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

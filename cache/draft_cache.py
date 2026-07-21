@@ -27,6 +27,14 @@ class DraftCache:
 
     def _init_schema(self) -> None:
         """初始化数据库表结构。"""
+        # 兼容已存在的表：先确保 project_id 列存在（旧行归为 default 项目）
+        try:
+            self._conn.execute(
+                "ALTER TABLE drafts ADD COLUMN project_id TEXT DEFAULT 'default'"
+            )
+            self._conn.commit()
+        except Exception:
+            pass
         self._conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS drafts (
@@ -38,6 +46,7 @@ class DraftCache:
                 metadata TEXT,
                 status TEXT DEFAULT 'pending',
                 quality_score INTEGER,
+                project_id TEXT DEFAULT 'default',
                 created_at TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             );
@@ -45,6 +54,7 @@ class DraftCache:
             CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
             CREATE INDEX IF NOT EXISTS idx_drafts_type ON drafts(type);
             CREATE INDEX IF NOT EXISTS idx_drafts_source ON drafts(source);
+            CREATE INDEX IF NOT EXISTS idx_drafts_project ON drafts(project_id);
             CREATE INDEX IF NOT EXISTS idx_drafts_created ON drafts(created_at);
             """
         )
@@ -54,11 +64,12 @@ class DraftCache:
         """关闭数据库连接。"""
         self._conn.close()
 
-    def add_draft(self, draft: dict[str, Any]) -> str:
+    def add_draft(self, draft: dict[str, Any], project_id: str = "default") -> str:
         """添加草稿。
 
         Args:
             draft: 草稿对象，包含 source/type/title/content/metadata/status 等字段
+            project_id: 所属项目 ID（用于多项目隔离）
 
         Returns:
             新增草稿的 ID
@@ -67,8 +78,8 @@ class DraftCache:
         now = datetime.now().isoformat()
         self._conn.execute(
             """
-            INSERT INTO drafts (id, source, type, title, content, metadata, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO drafts (id, source, type, title, content, metadata, status, project_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 draft_id,
@@ -78,6 +89,7 @@ class DraftCache:
                 draft["content"],
                 json.dumps(draft["metadata"]) if draft.get("metadata") else None,
                 draft.get("status", "pending"),
+                project_id,
                 now,
                 now,
             ),
@@ -86,20 +98,21 @@ class DraftCache:
         return draft_id
 
     def get_drafts_by_status(
-        self, status: str = "pending", filters: Optional[dict[str, str]] = None
+        self, status: str = "pending", filters: Optional[dict[str, str]] = None, project_id: str = "default"
     ) -> list[dict[str, Any]]:
         """获取指定状态的草稿列表。
 
         Args:
             status: 草稿状态
             filters: 额外过滤条件，支持 source/type
+            project_id: 所属项目 ID（多项目隔离）
 
         Returns:
             草稿列表
         """
         filters = filters or {}
-        where_clauses = ["status = ?"]
-        params: list[Any] = [status]
+        where_clauses = ["status = ?", "project_id = ?"]
+        params: list[Any] = [status, project_id]
 
         if "source" in filters:
             where_clauses.append("source = ?")
@@ -206,6 +219,7 @@ class DraftCache:
             "qualityScore": row["quality_score"],
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
+            "projectId": row["project_id"] if "project_id" in (row.keys() if hasattr(row, "keys") else []) else "default",
         }
 
 
@@ -224,6 +238,7 @@ def cli():
     p_list.add_argument("--status", default=None)
     p_list.add_argument("--source", default=None)
     p_list.add_argument("--type", default=None)
+    p_list.add_argument("--project", default="default")
     p_list.add_argument("--limit", type=int, default=100)
     p_list.add_argument("--offset", type=int, default=0)
 
@@ -238,6 +253,7 @@ def cli():
     p_add.add_argument("--title", default="未命名草稿")
     p_add.add_argument("--content", default="")
     p_add.add_argument("--metadata", default="{}")
+    p_add.add_argument("--project", default="default")
 
     # update-status
     p_up = sub.add_parser("update-status", help="更新草稿状态")
@@ -258,6 +274,7 @@ def cli():
     # list-conflicts
     p_conflicts = sub.add_parser("list-conflicts", help="列出冲突")
     p_conflicts.add_argument("--status", default=None)
+    p_conflicts.add_argument("--project", default="default")
     p_conflicts.add_argument("--limit", type=int, default=100)
 
     # resolve-conflict
@@ -267,6 +284,7 @@ def cli():
 
     # stats
     p_stats = sub.add_parser("stats", help="获取统计")
+    p_stats.add_argument("--project", default="default")
 
     args = parser.parse_args()
     cache = DraftCache(args.db)
@@ -278,12 +296,12 @@ def cli():
         if args.type:
             filters["type"] = args.type
         if args.status:
-            drafts = cache.get_drafts_by_status(args.status, filters)
+            drafts = cache.get_drafts_by_status(args.status, filters, args.project)
         else:
-            # 获取全部草稿
+            # 获取全部草稿（按项目隔离）
             cursor = cache._conn.execute(
-                "SELECT * FROM drafts ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (args.limit, args.offset)
+                "SELECT * FROM drafts WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (args.project, args.limit, args.offset)
             )
             drafts = [cache._row_to_draft(row) for row in cursor.fetchall()]
         print(json.dumps(drafts, ensure_ascii=False))
@@ -299,7 +317,7 @@ def cli():
             "title": args.title,
             "content": args.content,
             "metadata": json.loads(args.metadata),
-        })
+        }, project_id=args.project)
         print(json.dumps({"id": draft_id}, ensure_ascii=False))
 
     elif args.cmd == "update-status":
@@ -358,14 +376,21 @@ def cli():
         }, ensure_ascii=False))
 
     elif args.cmd == "stats":
-        import sys
-        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        import sys as _sys
+        import json as _json
+        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from cache.audit_log import AuditLog
         from cache.conflict_queue import ConflictQueue
 
-        cursor = cache._conn.execute("SELECT status, COUNT(*) FROM drafts GROUP BY status")
+        # 该项目草稿统计（按 project_id 隔离）
+        cursor = cache._conn.execute(
+            "SELECT status, COUNT(*) FROM drafts WHERE project_id = ? GROUP BY status",
+            (args.project,),
+        )
         draft_stats = {row[0]: row[1] for row in cursor.fetchall()}
-        cursor = cache._conn.execute("SELECT COUNT(*) FROM drafts")
+        cursor = cache._conn.execute(
+            "SELECT COUNT(*) FROM drafts WHERE project_id = ?", (args.project,)
+        )
         total_drafts = cursor.fetchone()[0]
 
         cq = ConflictQueue(args.db)
@@ -376,27 +401,40 @@ def cli():
         dashboard_stats = audit.get_stats()
         audit.close()
 
-        # 统计 brain 目录页面数量
-        brain_repo = Path(args.db).parent.parent / "brain" if args.db else Path(__file__).parent.parent / "brain"
+        # 知识库页面统计：项目私有目录 + 共享目录
+        root = Path(__file__).resolve().parent.parent
+        brain_dirs = []
+        pcfg_path = root / "config" / "projects.json"
+        if pcfg_path.exists():
+            pcfg = _json.loads(pcfg_path.read_text(encoding="utf-8"))
+            proj = next((p for p in pcfg["projects"] if p["id"] == args.project), pcfg["projects"][0])
+            brain_dirs.append(root / proj["brainPath"])
+            if pcfg.get("sharedBrain"):
+                brain_dirs.append(root / pcfg["sharedBrain"])
+        else:
+            brain_dirs.append(root / "brain")
+
         total_pages = 0
         total_rules = 0
         total_cases = 0
         total_defects = 0
-        if brain_repo.exists():
-            for cat_dir in brain_repo.iterdir():
+        for bd in brain_dirs:
+            if not bd.exists():
+                continue
+            for cat_dir in bd.iterdir():
                 if not cat_dir.is_dir():
                     continue
-                md_files = list(cat_dir.glob("*.md"))
-                count = len(md_files)
+                count = len(list(cat_dir.glob("*.md")))
                 total_pages += count
                 if cat_dir.name == "quality-rules":
-                    total_rules = count
+                    total_rules += count
                 elif cat_dir.name == "test-cases":
-                    total_cases = count
+                    total_cases += count
                 elif cat_dir.name == "defect-experience":
-                    total_defects = count
+                    total_defects += count
 
         print(json.dumps({
+            "project": args.project,
             "totalDrafts": total_drafts,
             "pendingDrafts": draft_stats.get("pending", 0),
             "approvedDrafts": draft_stats.get("approved", 0),

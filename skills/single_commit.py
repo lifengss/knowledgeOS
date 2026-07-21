@@ -14,7 +14,7 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
 from cache import AuditLog, DraftCache
-from skills.batch_commit import _build_page_content, _write_to_brain
+from skills.batch_commit import _build_page_content, _write_to_brain, _resolve_brain_dir
 from skills.conflict_detector import detect_conflicts
 from skills.quality_gate import run_quality_gate
 
@@ -27,6 +27,7 @@ def single_commit(
     operator: str = "system",
     skip_conflict_check: bool = False,
     skip_quality_gate: bool = False,
+    project: str = "default",
 ) -> dict[str, Any]:
     """单条入库。
 
@@ -66,10 +67,12 @@ def single_commit(
                 "reason": f"草稿状态为 {draft.get('status')}，不是 pending/approved",
             }
 
+        effective_project = draft.get("projectId") or project
+
         # 1. 冲突检测
         if not skip_conflict_check:
             conflict_result = detect_conflicts(
-                draft_ids=[draft_id], db_path=db_path, operator=operator
+                draft_ids=[draft_id], db_path=db_path, operator=operator, project=effective_project
             )
             if conflict_result.get("conflicts"):
                 conflict = conflict_result["conflicts"][0]
@@ -88,7 +91,7 @@ def single_commit(
                 score = draft.get("qualityScore")
             else:
                 quality_result = run_quality_gate(
-                    draft_ids=[draft_id], db_path=db_path, operator=operator
+                    draft_ids=[draft_id], db_path=db_path, operator=operator, project=effective_project
                 )
                 rejected = quality_result.get("rejected", [])
                 if rejected:
@@ -113,7 +116,8 @@ def single_commit(
         slug = f"{brain_type}/{draft_id}"
 
         page_content = _build_page_content(draft)
-        success = _write_to_brain(slug, page_content)
+        brain_dir = _resolve_brain_dir(effective_project)
+        success = _write_to_brain(brain_dir, slug, page_content)
 
         if not success:
             return {
@@ -159,6 +163,7 @@ if __name__ == "__main__":
     parser.add_argument("--operator", default="system", help="操作人")
     parser.add_argument("--skip-conflict-check", action="store_true", help="跳过冲突检测")
     parser.add_argument("--skip-quality-gate", action="store_true", help="跳过质量门控")
+    parser.add_argument("--project", default="default", help="所属项目 ID")
     args = parser.parse_args()
 
     result = single_commit(
@@ -167,5 +172,6 @@ if __name__ == "__main__":
         operator=args.operator,
         skip_conflict_check=args.skip_conflict_check,
         skip_quality_gate=args.skip_quality_gate,
+        project=args.project,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

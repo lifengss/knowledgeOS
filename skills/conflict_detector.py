@@ -27,6 +27,35 @@ BRAIN_TYPE_MAP = {
     "project_wiki": "project-wiki",
 }
 
+# 草稿类型 -> 文件系统知识库分类目录(与 batch_commit.BRAIN_TYPE_MAP 保持一致)
+FS_CATEGORY = {
+    "quality_rule": "quality-rules",
+    "defect_experience": "defect-experience",
+    "test_case": "test-cases",
+    "project_wiki": "project-wiki",
+    "code_interface": "project-wiki",
+}
+
+
+def _resolve_brain_dirs(project_id: str = "default") -> list:
+    """解析项目知识库目录列表: [项目私有, 共享](多项目隔离/共享)。"""
+    dirs = []
+    shared = None
+    pcfg = PROJECT_DIR / "config" / "projects.json"
+    if pcfg.exists():
+        try:
+            cfg = json.loads(pcfg.read_text(encoding="utf-8"))
+            proj = next((p for p in cfg["projects"] if p["id"] == project_id), cfg["projects"][0])
+            dirs.append(PROJECT_DIR / proj["brainPath"])
+            shared = cfg.get("sharedBrain")
+        except Exception:
+            pass
+    if not dirs:
+        dirs.append(PROJECT_DIR / "brain")
+    if shared:
+        dirs.append(PROJECT_DIR / shared)
+    return dirs
+
 
 def _gbrain_list(page_type: str) -> list[dict[str, Any]]:
     """调用 gbrain list 获取指定类型的页面列表。"""
@@ -166,13 +195,15 @@ def detect_conflicts(
     draft_ids: Optional[list[str]] = None,
     db_path: Optional[str] = None,
     operator: str = "system",
+    project: str = "default",
 ) -> dict[str, Any]:
-    """执行冲突检测。
+    """执行冲突检测(文件系统知识库, 按项目隔离)。
 
     Args:
-        draft_ids: 指定草稿 ID 列表，None 则检测所有 pending 草稿
+        draft_ids: 指定草稿 ID 列表；None 则检测该项目下所有 pending 草稿
         db_path: 数据库路径
         operator: 操作人
+        project: 项目 ID(用于隔离知识库目录)
 
     Returns:
         检测结果 { checkedDrafts, conflicts, passedDrafts }
@@ -191,29 +222,13 @@ def detect_conflicts(
                 if d:
                     drafts.append(d)
         else:
-            drafts = draft_cache.get_drafts_by_status("pending")
+            drafts = draft_cache.get_drafts_by_status("pending", project_id=project)
 
         if not drafts:
             return {"checkedDrafts": 0, "conflicts": [], "passedDrafts": []}
 
-        # 2. 按类型分组，读取对应 Brain 页面
-        type_to_pages: dict[str, list[dict[str, Any]]] = {}
-        for draft in drafts:
-            draft_type = draft.get("type", "")
-            brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
-            if brain_type not in type_to_pages:
-                pages = _gbrain_list(brain_type)
-                # 获取页面内容
-                type_to_pages[brain_type] = []
-                for page_meta in pages:
-                    page_content = _gbrain_get(page_meta["slug"])
-                    type_to_pages[brain_type].append(
-                        {
-                            "slug": page_meta["slug"],
-                            "title": page_meta["title"],
-                            "content": page_content.get("content", ""),
-                        }
-                    )
+        # 2. 读取项目知识库已有页面(文件系统, 私有 + 共享)
+        existing_by_cat = _load_existing_fs(project)
 
         # 3. 逐条检测冲突
         conflicts = []
@@ -222,8 +237,8 @@ def detect_conflicts(
         for draft in drafts:
             draft_id = draft["id"]
             draft_type = draft.get("type", "")
-            brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
-            existing_pages = type_to_pages.get(brain_type, [])
+            cat = FS_CATEGORY.get(draft_type, "project-wiki")
+            existing_pages = existing_by_cat.get(cat, [])
 
             found_conflict = False
             for page in existing_pages:
@@ -262,6 +277,7 @@ def detect_conflicts(
                 "checkedCount": len(drafts),
                 "conflictCount": len(conflicts),
                 "passedCount": len(passed_drafts),
+                "project": project,
             },
         )
 
@@ -277,6 +293,37 @@ def detect_conflicts(
         audit_log.close()
 
 
+def _load_existing_fs(project: str = "default") -> dict:
+    """读取项目私有 + 共享知识库的已有页面(文件系统), 按 fs 分类目录分组。"""
+    import re as _re
+
+    result: dict = {}
+    for bdir in _resolve_brain_dirs(project):
+        cats = sorted(set(FS_CATEGORY.values()))
+        for cat in cats:
+            cat_dir = os.path.join(str(bdir), cat)
+            if not os.path.isdir(cat_dir):
+                continue
+            for fn in os.listdir(cat_dir):
+                if not fn.endswith(".md"):
+                    continue
+                fp = os.path.join(cat_dir, fn)
+                try:
+                    content = open(fp, "r", encoding="utf-8").read()
+                except Exception:
+                    continue
+                title_m = _re.search(r"^#\s+(.+)$", content, _re.M)
+                slug = fn[: -len(".md")] if fn.endswith(".md") else fn
+                result.setdefault(cat, []).append(
+                    {
+                        "slug": slug,
+                        "title": title_m.group(1) if title_m else fn,
+                        "content": content,
+                    }
+                )
+    return result
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -284,11 +331,13 @@ if __name__ == "__main__":
     parser.add_argument("--draft-ids", nargs="*", help="指定草稿 ID 列表")
     parser.add_argument("--db-path", help="数据库路径")
     parser.add_argument("--operator", default="system", help="操作人")
+    parser.add_argument("--project", default="default", help="所属项目 ID")
     args = parser.parse_args()
 
     result = detect_conflicts(
         draft_ids=args.draft_ids,
         db_path=args.db_path,
         operator=args.operator,
+        project=args.project,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

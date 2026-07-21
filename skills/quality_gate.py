@@ -134,6 +134,7 @@ def run_quality_gate(
     draft_ids: Optional[list[str]] = None,
     db_path: Optional[str] = None,
     operator: str = "system",
+    project: str = "default",
 ) -> dict[str, Any]:
     """执行质量门控。
 
@@ -158,7 +159,7 @@ def run_quality_gate(
                 if d and d.get("status") in ("pending", "conflict"):
                     drafts.append(d)
         else:
-            drafts = draft_cache.get_drafts_by_status("pending")
+            drafts = draft_cache.get_drafts_by_status("pending", project_id=project)
 
         if not drafts:
             return {"checkedDrafts": 0, "passed": [], "rejected": []}
@@ -209,11 +210,13 @@ if __name__ == "__main__":
     parser.add_argument("--draft-ids", nargs="*", help="指定草稿 ID 列表")
     parser.add_argument("--db-path", help="数据库路径")
     parser.add_argument("--operator", default="system", help="操作人")
+    parser.add_argument("--project", default="default", help="所属项目 ID")
     args = parser.parse_args()
 
     result = run_quality_gate(
         draft_ids=args.draft_ids,
         db_path=args.db_path,
         operator=args.operator,
+        project=args.project,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

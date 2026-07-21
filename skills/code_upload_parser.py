@@ -348,7 +348,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="代码上传解析器")
     parser.add_argument("--input", required=True, help="压缩包(zip/tar/7z) / 代码目录 / 单个代码文件")
     parser.add_argument("--db", default=None, help="drafts.db 路径")
-    parser.add_argument("--brain", default="./brain", help="brain 仓库根目录")
+    parser.add_argument("--brain", default="./brain", help="brain 仓库根目录（默认按项目解析）")
+    parser.add_argument("--project", default="default", help="所属项目 ID（多项目隔离）")
     parser.add_argument("--note", default="", help="上传备注")
     args = parser.parse_args()
 
@@ -391,13 +392,28 @@ def main() -> None:
                     "uploadNote": args.note,
                     "uploadType": "code",
                 },
-            }
+            },
+            project_id=args.project,
         )
         created_draft_ids.append(draft_id)
     cache.close()
 
-    # 2. 生成图谱 Markdown
-    brain_repo = Path(args.brain)
+    # 2. 生成图谱 Markdown（写入项目私有 Brain 目录）
+    if args.brain and args.brain != "./brain":
+        brain_repo = Path(args.brain)
+    else:
+        _root = Path(__file__).resolve().parent.parent
+        _pcfg = _root / "config" / "projects.json"
+        if _pcfg.exists():
+            try:
+                import json as _json
+                _cfg = _json.loads(_pcfg.read_text(encoding="utf-8"))
+                _proj = next((p for p in _cfg["projects"] if p["id"] == args.project), _cfg["projects"][0])
+                brain_repo = _root / _proj["brainPath"]
+            except Exception:
+                brain_repo = Path(args.brain)
+        else:
+            brain_repo = Path(args.brain)
     pw_dir = brain_repo / "project-wiki"
     pw_dir.mkdir(parents=True, exist_ok=True)
     written_files = write_graph_markdown(slice_result, pw_dir, args.note, module_set)
