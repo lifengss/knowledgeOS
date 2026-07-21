@@ -44,3 +44,6 @@ __pycache__/
 # Test outputs
 tests/pytest_final.txt
 tests/server_log.txt
+
+# Temp files
+temp/
