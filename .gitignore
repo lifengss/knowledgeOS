@@ -9,6 +9,8 @@ bun.lockb
 cache/*.db
 cache/*.log
 *.log
+server.err
+server.out
 
 # Environment variables
 .env

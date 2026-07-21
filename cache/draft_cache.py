@@ -376,6 +376,26 @@ def cli():
         dashboard_stats = audit.get_stats()
         audit.close()
 
+        # 统计 brain 目录页面数量
+        brain_repo = Path(args.db).parent.parent / "brain" if args.db else Path(__file__).parent.parent / "brain"
+        total_pages = 0
+        total_rules = 0
+        total_cases = 0
+        total_defects = 0
+        if brain_repo.exists():
+            for cat_dir in brain_repo.iterdir():
+                if not cat_dir.is_dir():
+                    continue
+                md_files = list(cat_dir.glob("*.md"))
+                count = len(md_files)
+                total_pages += count
+                if cat_dir.name == "quality-rules":
+                    total_rules = count
+                elif cat_dir.name == "test-cases":
+                    total_cases = count
+                elif cat_dir.name == "defect-experience":
+                    total_defects = count
+
         print(json.dumps({
             "totalDrafts": total_drafts,
             "pendingDrafts": draft_stats.get("pending", 0),
@@ -384,10 +404,10 @@ def cli():
             "discardedDrafts": draft_stats.get("discarded", 0),
             "rejectedDrafts": draft_stats.get("rejected", 0),
             "conflictDrafts": draft_stats.get("conflict", 0),
-            "totalPages": 0,
-            "totalRules": 0,
-            "totalCases": 0,
-            "totalDefects": 0,
+            "totalPages": total_pages,
+            "totalRules": total_rules,
+            "totalCases": total_cases,
+            "totalDefects": total_defects,
             "totalCommits": dashboard_stats.get("commitCount", draft_stats.get("merged", 0)),
             "todayCommits": dashboard_stats.get("today", {}).get("commitCount", 0),
             "weekCommits": dashboard_stats.get("thisWeek", {}).get("commitCount", 0),

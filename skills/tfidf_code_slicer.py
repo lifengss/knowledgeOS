@@ -47,7 +47,29 @@ def _parse_python(file_path: Path) -> dict[str, Any]:
     dependencies = []
     module_name = file_path.stem
 
-    for node in ast.walk(tree):
+    def _extract_calls(func_node: ast.AST, from_id: str) -> None:
+        """从函数节点中提取调用关系。"""
+        for child in ast.walk(func_node):
+            if isinstance(child, ast.Call):
+                if isinstance(child.func, ast.Name):
+                    dependencies.append(
+                        {
+                            "from": from_id,
+                            "to": child.func.id,
+                            "type": "call",
+                        }
+                    )
+                elif isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name):
+                    dependencies.append(
+                        {
+                            "from": from_id,
+                            "to": f"{child.func.value.id}.{child.func.attr}",
+                            "type": "method_call",
+                        }
+                    )
+
+    # 只遍历模块顶层定义，避免类方法被 ast.walk 重复计数
+    for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             func_name = node.name
             params = [arg.arg for arg in node.args.args]
@@ -68,26 +90,7 @@ def _parse_python(file_path: Path) -> dict[str, Any]:
                     "language": "python",
                 }
             )
-
-            # 提取调用关系
-            for child in ast.walk(node):
-                if isinstance(child, ast.Call):
-                    if isinstance(child.func, ast.Name):
-                        dependencies.append(
-                            {
-                                "from": f"{module_name}.{func_name}",
-                                "to": child.func.id,
-                                "type": "call",
-                            }
-                        )
-                    elif isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name):
-                        dependencies.append(
-                            {
-                                "from": f"{module_name}.{func_name}",
-                                "to": f"{child.func.value.id}.{child.func.attr}",
-                                "type": "method_call",
-                            }
-                        )
+            _extract_calls(node, f"{module_name}.{func_name}")
 
         elif isinstance(node, ast.ClassDef):
             class_name = node.name
@@ -107,6 +110,7 @@ def _parse_python(file_path: Path) -> dict[str, Any]:
                             "class": class_name,
                         }
                     )
+                    _extract_calls(item, f"{module_name}.{method_name}")
 
     return {"file": str(file_path), "interfaces": interfaces, "dependencies": dependencies}
 

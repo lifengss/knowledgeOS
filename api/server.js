@@ -12,12 +12,26 @@ const cors = require('cors');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.REST_API_PORT || process.env.PORT || 3000;
 
 // 项目根目录
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+
+// 上传临时目录（multer 接收代码 zip / 单文件）
+const UPLOAD_DIR = path.join(PROJECT_ROOT, 'cache', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// 保留原始扩展名，便于后端按 .zip 识别为压缩包
+const uploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+  }
+});
+const upload = multer({ storage: uploadStorage });
 
 // 中间件
 app.use(cors());
@@ -316,20 +330,37 @@ app.post('/api/generate-cases', async (req, res) => {
 // ---------------------------------------------------------------
 
 // POST /api/source-upload - 上传源数据
-app.post('/api/source-upload', async (req, res) => {
+// 业务代码类型支持上传压缩包（zip / tar(.gz/.bz2/.xz) / 7z）或单个代码文件（自动解析并写入草稿）
+app.post('/api/source-upload', upload.single('file'), async (req, res) => {
   try {
-    const { type, content, note } = req.body;
-    // 将上传内容作为草稿写入缓冲层
-    const result = await callPython('cache/draft_cache.py', [
-      '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
-      'add',
-      '--source', 'upload',
-      '--type', type || 'quality_rule',
-      '--title', note || `上传: ${type}`,
-      '--content', content || '',
-      '--metadata', JSON.stringify({ uploadType: type, note: note || '' })
-    ]);
-    res.json({ success: true, data: result });
+    const type = req.body.type || (req.file ? 'code' : 'quality_rule');
+    const note = req.body.note || '';
+
+    if (req.file) {
+      // 代码上传：zip/tar/7z 压缩包或单个代码文件，后端自动解压并解析
+      const result = await callPython('skills/code_upload_parser.py', [
+        '--input', req.file.path,
+        '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
+        '--brain', process.env.BRAIN_REPO || './brain',
+        '--note', note
+      ]);
+      // 清理 multer 暂存的上传文件
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+      res.json({ success: true, data: result });
+    } else {
+      const { content } = req.body;
+      // 非代码类型：将上传内容作为草稿写入缓冲层
+      const result = await callPython('cache/draft_cache.py', [
+        '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
+        'add',
+        '--source', 'upload',
+        '--type', type || 'quality_rule',
+        '--title', note || `上传: ${type}`,
+        '--content', content || '',
+        '--metadata', JSON.stringify({ uploadType: type, note: note || '' })
+      ]);
+      res.json({ success: true, data: result });
+    }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -387,6 +418,149 @@ app.get('/api/brain/pages/:category/:id', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ---------------------------------------------------------------
+// 模块 8: 图谱数据（解析 GBrain WikiLinks + 调用关系）
+// ---------------------------------------------------------------
+
+// GET /api/graph-data - 获取图谱节点和边数据
+app.get('/api/graph-data', async (req, res) => {
+  try {
+    const brainRepo = process.env.BRAIN_REPO || './brain';
+    const pwPath = path.join(brainRepo, 'project-wiki');
+    if (!fs.existsSync(pwPath)) {
+      return res.json({ success: true, data: { nodes: [], edges: [] } });
+    }
+
+    const nodes = new Map();
+    const edges = [];
+    let edgeId = 0;
+
+    // 内置函数黑名单（不应出现在图谱中）
+    const BUILTINS = new Set([
+      'print', 'open', 'len', 'range', 'str', 'int', 'float', 'list', 'dict', 'tuple',
+      'set', 'bool', 'type', 'id', 'input', 'max', 'min', 'sum', 'abs', 'round',
+      'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all',
+      'hex', 'oct', 'bin', 'chr', 'ord', 'pow', 'divmod', 'compile', 'eval', 'exec',
+      'getattr', 'setattr', 'hasattr', 'delattr', 'isinstance', 'issubclass', 'callable',
+      'format', 'repr', 'vars', 'locals', 'globals', 'next', 'iter', 'slice',
+      'memoryview', 'bytearray', 'bytes', 'complex', 'frozenset', 'object', 'property',
+      'staticmethod', 'classmethod', 'super', '__import__', 'ascii', 'breakpoint',
+      'hash', 'help', 'dir', 'exit', 'quit'
+    ]);
+
+    function isBuiltin(name) {
+      if (!name) return false;
+      const base = name.split('.').pop();
+      return BUILTINS.has(base);
+    }
+
+    // 1. 从 api-overview.md 提取模块节点和 WikiLinks
+    const overviewPath = path.join(pwPath, 'api-overview.md');
+    if (fs.existsSync(overviewPath)) {
+      const overview = fs.readFileSync(overviewPath, 'utf-8');
+
+      // 模块节点：[[api-xxx]]
+      const wikiLinkRe = /\[\[(api-[\w-]+)\]\]/g;
+      let m;
+      while ((m = wikiLinkRe.exec(overview)) !== null) {
+        const id = m[1];
+        if (!nodes.has(id)) {
+          nodes.set(id, { id, label: id.replace('api-', ''), type: 'module', module: id });
+        }
+      }
+
+      // 相似关系：`A` ↔ `B` （相似度: x.xx）
+      const similarRe = /- `([^`]+)` ↔ `([^`]+)` （相似度: ([\d.]+)）/g;
+      while ((m = similarRe.exec(overview)) !== null) {
+        const [_, a, b, sim] = m;
+        if (isBuiltin(a) || isBuiltin(b)) continue;
+        const aid = a.replace(/\./g, '_');
+        const bid = b.replace(/\./g, '_');
+        if (!nodes.has(aid)) nodes.set(aid, { id: aid, label: a, type: 'function', module: guessModule(a) });
+        if (!nodes.has(bid)) nodes.set(bid, { id: bid, label: b, type: 'function', module: guessModule(b) });
+        edges.push({ id: `e${edgeId++}`, source: aid, target: bid, type: 'similar', label: `sim:${sim}` });
+      }
+    }
+
+    // 2. 从每个 api-*.md 提取函数节点和调用关系（排除总览文档）
+    const files = fs.readdirSync(pwPath).filter(f => f.startsWith('api-') && f.endsWith('.md') && f !== 'api-overview.md');
+    for (const file of files) {
+      const content = fs.readFileSync(path.join(pwPath, file), 'utf-8');
+      const moduleId = file.replace('.md', '');
+
+      // 确保模块节点存在
+      if (!nodes.has(moduleId)) {
+        nodes.set(moduleId, { id: moduleId, label: moduleId.replace('api-', ''), type: 'module', module: moduleId });
+      }
+
+      // 接口列表：`- `module.func` → ...`
+      const ifaceRe = /- `([\w.]+)`\s*→/g;
+      while ((m = ifaceRe.exec(content)) !== null) {
+        const fname = m[1];
+        if (isBuiltin(fname)) continue;
+        const fid = fname.replace(/\./g, '_');
+        if (!nodes.has(fid)) {
+          nodes.set(fid, { id: fid, label: fname, type: 'function', module: moduleId });
+        }
+        // 函数归属到模块（隐式边，不显示，用于布局分组）
+      }
+
+      // 调用关系：`- `A` → `B` （call / method_call）`
+      const callRe = /- `([^`]+)` → `([^`]+)` （(\w+)）/g;
+      while ((m = callRe.exec(content)) !== null) {
+        const [_, a, b, ctype] = m;
+        if (isBuiltin(a) || isBuiltin(b)) continue;
+        const aid = a.replace(/\./g, '_');
+        const bid = b.replace(/\./g, '_');
+        if (!nodes.has(aid)) nodes.set(aid, { id: aid, label: a, type: 'function', module: guessModule(a, moduleId) });
+        if (!nodes.has(bid)) nodes.set(bid, { id: bid, label: b, type: 'function', module: guessModule(b, moduleId) });
+        // 去重边
+        const dup = edges.find(e => e.source === aid && e.target === bid && e.type === 'call');
+        if (!dup) {
+          edges.push({ id: `e${edgeId++}`, source: aid, target: bid, type: 'call', label: ctype });
+        }
+      }
+    }
+
+    // 3. 模块之间的 WikiLink 边（从 overview 的模块列表）
+    const moduleIds = Array.from(nodes.values()).filter(n => n.type === 'module').map(n => n.id);
+    // 模块间如果存在跨模块调用，添加模块级边
+    const moduleEdges = new Set();
+    for (const e of edges) {
+      if (e.type !== 'call') continue;
+      const srcNode = nodes.get(e.source);
+      const tgtNode = nodes.get(e.target);
+      if (!srcNode || !tgtNode) continue;
+      if (srcNode.module !== tgtNode.module && srcNode.module && tgtNode.module) {
+        const key = `${srcNode.module}|${tgtNode.module}`;
+        if (!moduleEdges.has(key)) {
+          moduleEdges.add(key);
+          edges.push({ id: `e${edgeId++}`, source: srcNode.module, target: tgtNode.module, type: 'module_call', label: 'calls' });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        nodes: Array.from(nodes.values()),
+        edges: edges
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+function guessModule(funcName, fallback) {
+  if (!funcName) return fallback;
+  const parts = funcName.split('.');
+  if (parts.length >= 2) {
+    return 'api-' + parts[0].replace(/_/g, '-');
+  }
+  return fallback || 'api-unknown';
+}
 
 // ---------------------------------------------------------------
 // 启动服务器

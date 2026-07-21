@@ -10,49 +10,66 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo">🧠</div>
+        <div class="logo">
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>
+        </div>
         <div>
           <h1>知识管理系统</h1>
-          <span class="version">V1.0 Demo</span>
+          <span class="version">V1.0</span>
         </div>
       </div>
       <nav class="nav">
         <a href="#dashboard" class="nav-item active" data-page="dashboard">
-          <span class="icon">📊</span> 概览
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></span>
+          <span class="nav-label">概览</span>
         </a>
         <a href="#brain" class="nav-item" data-page="brain">
-          <span class="icon">📚</span> 知识库浏览
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
+          <span class="nav-label">知识库浏览</span>
         </a>
         <a href="#drafts" class="nav-item" data-page="drafts">
-          <span class="icon">📝</span> 草稿审核
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+          <span class="nav-label">草稿审核</span>
           <span class="badge" id="draft-badge">3</span>
         </a>
         <a href="#conflicts" class="nav-item" data-page="conflicts">
-          <span class="icon">⚠️</span> 冲突处理
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+          <span class="nav-label">冲突处理</span>
           <span class="badge" id="conflict-badge">2</span>
         </a>
         <a href="#graph" class="nav-item" data-page="graph">
-          <span class="icon">🕸️</span> 图谱可视化
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></span>
+          <span class="nav-label">图谱可视化</span>
         </a>
         <a href="#verify" class="nav-item" data-page="verify">
-          <span class="icon">🔍</span> 推理验证
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+          <span class="nav-label">推理验证</span>
         </a>
         <a href="#audit" class="nav-item" data-page="audit">
-          <span class="icon">📋</span> 质量监控
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg></span>
+          <span class="nav-label">审计日志</span>
+        </a>
+        <a href="#quality" class="nav-item" data-page="quality">
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span>
+          <span class="nav-label">质量监控</span>
         </a>
         <a href="#dashboardStats" class="nav-item" data-page="dashboardStats">
-          <span class="icon">📈</span> 全局统计
+          <span class="icon"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+          <span class="nav-label">审计大盘</span>
         </a>
       </nav>
       <div class="sidebar-footer">
         <div class="status-item">
-          <span class="status-dot online"></span> MCP 查询 8100
+          <span class="status-dot online"></span>
+          <span>MCP 查询 8100</span>
         </div>
         <div class="status-item">
-          <span class="status-dot online"></span> MCP 写入 8101
+          <span class="status-dot online"></span>
+          <span>MCP 写入 8101</span>
         </div>
         <div class="status-item">
-          <span class="status-dot offline"></span> REST API 3000
+          <span class="status-dot offline"></span>
+          <span>REST API 3000</span>
         </div>
       </div>
     </aside>
@@ -61,8 +78,18 @@
       <header class="topbar">
         <h2 id="page-title">概览</h2>
         <div class="actions">
-          <button class="btn btn-secondary" id="btn-import">导入源数据</button>
-          <button class="btn btn-primary" id="btn-run-dream">运行 Dream Cycle</button>
+          <button class="btn btn-icon" id="btn-theme" title="切换主题">
+            <svg class="icon-moon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+          <button class="btn btn-secondary" id="btn-import">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            导入源数据
+          </button>
+          <button class="btn btn-primary" id="btn-run-dream">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            运行 Dream Cycle
+          </button>
         </div>
       </header>
 
@@ -77,7 +104,9 @@
     <div class="modal-content">
       <div class="modal-header">
         <h3>导入源数据</h3>
-        <button class="close-btn" id="close-import">&times;</button>
+        <button class="close-btn" id="close-import">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -92,6 +121,7 @@
         <div class="form-group">
           <label>选择文件</label>
           <input type="file" id="import-file">
+          <p class="form-hint" id="import-hint" style="margin:6px 0 0;font-size:12px;color:var(--text-muted);"></p>
         </div>
         <div class="form-group">
           <label>备注</label>
