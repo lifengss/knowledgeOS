@@ -49,8 +49,11 @@ function callPython(scriptPath, args = []) {
     const python = process.platform === 'win32' ? 'python' : 'python3';
     const proc = spawn(python, [path.join(PROJECT_ROOT, scriptPath), ...args], {
       cwd: PROJECT_ROOT,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-      shell: process.platform === 'win32'
+      // shell:false 直接把参数数组交给 CreateProcess，避免 Windows 下经 cmd.exe 传递
+      // 含中文/空格的参数时被错误拆分（导致 argparse 报 unrecognized arguments）。
+      // PYTHONUTF8=1 确保 Python 以 UTF-8 解析 argv 与 stdout。
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+      shell: false
     });
 
     let stdout = '';
