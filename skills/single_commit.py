@@ -138,6 +138,7 @@ def single_commit(
             operator=operator,
             target=draft_id,
             detail={"mode": "single", "committedPage": slug, "score": score},
+            project=effective_project,
         )
 
         return {

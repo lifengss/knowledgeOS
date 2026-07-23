@@ -9,6 +9,9 @@ bun.lockb
 cache/*.db
 cache/*.log
 *.log
+
+# AI platform runtime config (may contain apiKey)
+data/
 server.err
 server.out
 
@@ -56,3 +59,13 @@ ui-*.txt
 ui-*.snap
 ab-out.txt
 agent-browser-install.err
+
+# 上传临时缓存（非知识，不纳入版本库）
+cache/uploads/
+
+# ===== 知识资产（不纳入版本库）=====
+# brain/ 与 brains/ 为知识库内容：GBrain 抽取产物（entity-*/、entity-index-*）、
+# 原始溯源文档（raw/）、PRD/需求/测试用例/质量规则等，均属于知识资产，不入库。
+# 区别于 docs/ —— docs/ 记录本项目如何创建的技术细节，应保留并入库。
+brain/
+brains/

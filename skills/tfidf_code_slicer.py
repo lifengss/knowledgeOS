@@ -15,15 +15,28 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+# 解压/扫描代码时应忽略的目录：依赖、构建产物、缓存、版本控制等
+IGNORE_DIRS = {
+    "node_modules", ".git", "dist", "build", "__pycache__", ".next",
+    ".nuxt", "vendor", "bower_components", "out", ".output", ".cache",
+    "coverage", "tmp", ".idea", ".vscode", ".venv", "venv", "env",
+    "target", "bin", "obj", ".svelte-kit",
+}
+
+
 def _collect_files(code_path: str) -> list[Path]:
-    """收集代码文件。"""
+    """收集代码文件，跳过依赖/构建/缓存等无关目录。"""
     path = Path(code_path)
     if path.is_file():
         return [path]
     if path.is_dir():
         files = []
         for ext in ("*.py", "*.js", "*.ts", "*.java"):
-            files.extend(path.rglob(ext))
+            for f in path.rglob(ext):
+                # 任何路径片段属于忽略目录则跳过
+                if any(part in IGNORE_DIRS for part in f.parts):
+                    continue
+                files.append(f)
         return files
     return []
 
@@ -40,7 +53,7 @@ def _parse_python(file_path: Path) -> dict[str, Any]:
     try:
         source = file_path.read_text(encoding="utf-8")
         tree = ast.parse(source)
-    except SyntaxError as e:
+    except (OSError, UnicodeDecodeError, SyntaxError) as e:
         return {"file": str(file_path), "error": str(e), "interfaces": [], "dependencies": []}
 
     interfaces = []
@@ -243,17 +256,22 @@ def slice_code(code_path: str) -> dict[str, Any]:
     file_results = []
 
     for file_path in files:
-        lang = _detect_language(file_path)
-        if lang == "python":
-            result = _parse_python(file_path)
-        elif lang in ("javascript", "typescript"):
-            result = _parse_js_ts(file_path)
-        elif lang == "java":
-            result = _parse_java(file_path)
-        else:
-            continue
+        try:
+            lang = _detect_language(file_path)
+            if lang == "python":
+                result = _parse_python(file_path)
+            elif lang in ("javascript", "typescript"):
+                result = _parse_js_ts(file_path)
+            elif lang == "java":
+                result = _parse_java(file_path)
+            else:
+                continue
 
-        file_results.append(result)
+            file_results.append(result)
+        except Exception as e:  # 单个文件权限不足/损坏不应中断整体解析
+            file_results.append(
+                {"file": str(file_path), "error": str(e), "interfaces": [], "dependencies": []}
+            )
         all_interfaces.extend(result.get("interfaces", []))
         all_dependencies.extend(result.get("dependencies", []))
 

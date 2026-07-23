@@ -21,12 +21,12 @@ try {
   config = {
     defaultProject: 'default',
     sharedBrain: 'brains/_shared',
-    categories: ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases'],
+    categories: ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases', 'test-scripts'],
     projects: [{ id: 'default', name: '默认项目', brainPath: 'brain' }],
   };
 }
 
-const CATEGORIES = config.categories || ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases'];
+const CATEGORIES = config.categories || ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases', 'test-scripts'];
 
 function getProjects() {
   return config.projects;
@@ -63,12 +63,69 @@ function resolveWriteDir(pid, category) {
   return path.join(resolveBrainDir(pid), category);
 }
 
+/**
+ * 运行时新建项目：
+ *  - 校验 id（非空、合法字符、不重复）
+ *  - 创建 brains/<id> 目录及分类子目录
+ *  - 写回 config/projects.json 并同步内存 config
+ */
+function addProject({ id, name, description, brainPath }) {
+  const pid = (id || '').trim();
+  if (!pid) throw new Error('项目 ID 不能为空');
+  if (!/^[A-Za-z0-9_-]+$/.test(pid)) {
+    throw new Error('项目 ID 只能包含字母、数字、下划线(_)和连字符(-)');
+  }
+  if (config.projects.some((p) => p.id === pid)) {
+    throw new Error('项目 ID 已存在: ' + pid);
+  }
+  const bp = (brainPath || `brains/${pid}`).trim();
+  const base = path.resolve(PROJECT_DIR, bp);
+  fs.mkdirSync(base, { recursive: true });
+  for (const cat of (config.categories || [])) {
+    fs.mkdirSync(path.join(base, cat), { recursive: true });
+  }
+  const entry = { id: pid, name: name || pid, description: description || '', brainPath: bp };
+  config.projects.push(entry);
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  return entry;
+}
+
+/**
+ * 运行时删除项目：
+ *  - 禁止删除默认项目（默认项目为兜底，不可移除）
+ *  - 删除 config/projects.json 中的条目并写回
+ *  - 删除该项目私有的 Brain 目录（brains/<id>），共享库不受影响
+ * 返回被删除项目的条目。
+ */
+function removeProject(id) {
+  const pid = (id || '').trim();
+  if (!pid) throw new Error('项目 ID 不能为空');
+  if (pid === config.defaultProject) {
+    throw new Error('默认项目不可删除');
+  }
+  const idx = config.projects.findIndex((p) => p.id === pid);
+  if (idx === -1) {
+    throw new Error('项目不存在: ' + pid);
+  }
+  const entry = config.projects[idx];
+  // 仅删除该项目私有 Brain 目录（在 PROJECT_DIR 之内的 brains/<id> 才允许删除）
+  const base = path.resolve(PROJECT_DIR, entry.brainPath);
+  if (base.startsWith(PROJECT_DIR) && fs.existsSync(base)) {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+  config.projects.splice(idx, 1);
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  return entry;
+}
+
 module.exports = {
   config,
   CATEGORIES,
   getProjects,
   getProject,
   getDefaultProject,
+  addProject,
+  removeProject,
   resolveBrainDir,
   resolveSharedDir,
   resolveBrainDirs,

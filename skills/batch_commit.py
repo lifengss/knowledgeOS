@@ -23,8 +23,21 @@ BRAIN_TYPE_MAP = {
     "quality_rule": "quality-rules",
     "defect_experience": "defect-experience",
     "test_case": "test-cases",
+    "test_script": "test-scripts",
     "project_wiki": "project-wiki",
 }
+
+
+def _shared_brain_path() -> Path:
+    """返回共享脑库目录（对齐 api/projects.js 的 resolveSharedDir）。"""
+    pcfg = PROJECT_DIR / "config" / "projects.json"
+    if pcfg.exists():
+        try:
+            cfg = json.loads(pcfg.read_text(encoding="utf-8"))
+            return PROJECT_DIR / (cfg.get("sharedBrain") or "brains/_shared")
+        except Exception:
+            pass
+    return PROJECT_DIR / "brains" / "_shared"
 
 
 def _resolve_brain_dir(project_id: str = "default") -> Path:
@@ -48,7 +61,8 @@ def _write_to_brain(brain_dir: Path, slug: str, content: str) -> bool:
         filename = parts[-1]
         cat_dir = brain_dir / category
         cat_dir.mkdir(parents=True, exist_ok=True)
-        (cat_dir / f"{filename}.md").write_text(content, encoding="utf-8")
+        # newline='\n' 保证跨平台统一使用 LF，避免 Windows 默认写入 CRLF 造成与草稿缓冲层内容(SCF)不一致
+        (cat_dir / f"{filename}.md").write_text(content, encoding="utf-8", newline="\n")
         return True
     except Exception as e:
         print(f"[batch-commit] 写入 {slug} 失败: {e}", file=sys.stderr)
@@ -169,11 +183,32 @@ def batch_commit(
         for draft in drafts:
             draft_id = draft["id"]
             draft_type = draft.get("type", "")
-            brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
-            slug = f"{brain_type}/{draft_id}"
+            metadata = draft.get("metadata") or {}
 
-            page_content = _build_page_content(draft)
-            success = _write_to_brain(brain_dir, slug, page_content)
+            if draft_type == "knowledge_edit":
+                # 人工编辑优化（链路 3a）：写回原知识库页面，而非生成新文件
+                category = metadata.get("category") or ""
+                page_id = metadata.get("pageId") or draft_id
+                repo = metadata.get("repo") or ""
+                # 校验路径安全，禁止越界
+                if (not category or ".." in category or "/" in category or "\\" in category
+                        or ".." in page_id or "/" in page_id or "\\" in page_id):
+                    failed.append(draft_id)
+                    continue
+                # 决定写回目录：repo 命中共享库则写共享库，否则写项目私有库
+                if repo and os.path.basename(str(_shared_brain_path())) == repo:
+                    brain_dir_edit = _shared_brain_path()
+                else:
+                    brain_dir_edit = _resolve_brain_dir(project)
+                slug = f"{category}/{page_id}"
+                # 所见即所得：直接写用户编辑内容（不包裹 frontmatter）
+                page_content = draft.get("content", "")
+                success = _write_to_brain(brain_dir_edit, slug, page_content)
+            else:
+                brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
+                slug = f"{brain_type}/{draft_id}"
+                page_content = _build_page_content(draft)
+                success = _write_to_brain(brain_dir, slug, page_content)
 
             if success:
                 draft_cache.update_draft_status(draft_id, "merged")
@@ -196,6 +231,7 @@ def batch_commit(
                 "failedCount": len(failed),
                 "committedPages": committed_pages,
             },
+            project=project,
         )
 
         return {

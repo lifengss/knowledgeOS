@@ -250,7 +250,8 @@ def detect_conflicts(
                             "existingRule": f"{page['slug']} {page['title']}",
                             "newRule": draft.get("title", ""),
                             "conflictType": conflict_type,
-                        }
+                        },
+                        project=project,
                     )
                     conflicts.append(
                         {

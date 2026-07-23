@@ -47,16 +47,23 @@ class ConflictQueue:
             """
         )
         self._conn.commit()
+        # 项目隔离：conflicts 增加 project 列（历史记录默认归属 default 项目）
+        _cols = [r[1] for r in self._conn.execute("PRAGMA table_info(conflicts)").fetchall()]
+        if "project" not in _cols:
+            self._conn.execute("ALTER TABLE conflicts ADD COLUMN project TEXT")
+            self._conn.execute("UPDATE conflicts SET project='default' WHERE project IS NULL")
+            self._conn.commit()
 
     def close(self) -> None:
         """关闭数据库连接。"""
         self._conn.close()
 
-    def add_conflict(self, conflict: dict[str, Any]) -> str:
+    def add_conflict(self, conflict: dict[str, Any], project: str = None) -> str:
         """添加冲突记录。
 
         Args:
             conflict: 冲突对象，包含 draftId/existingRule/newRule/conflictType
+            project: 所属项目 ID（用于隔离）
 
         Returns:
             冲突记录 ID
@@ -64,8 +71,8 @@ class ConflictQueue:
         conflict_id = str(uuid.uuid4())
         self._conn.execute(
             """
-            INSERT INTO conflicts (id, draft_id, existing_rule, new_rule, conflict_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO conflicts (id, draft_id, existing_rule, new_rule, conflict_type, created_at, project)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conflict_id,
@@ -74,18 +81,20 @@ class ConflictQueue:
                 conflict["newRule"],
                 conflict["conflictType"],
                 datetime.now().isoformat(),
+                project,
             ),
         )
         self._conn.commit()
         return conflict_id
 
     def get_pending_conflicts(
-        self, filters: Optional[dict[str, str]] = None
+        self, filters: Optional[dict[str, str]] = None, project: str = None
     ) -> list[dict[str, Any]]:
         """获取未处理冲突列表。
 
         Args:
             filters: 过滤条件，支持 type
+            project: 项目 ID（按项目隔离；None 表示全部）
 
         Returns:
             冲突列表
@@ -97,6 +106,9 @@ class ConflictQueue:
         if "type" in filters:
             where_clauses.append("conflict_type = ?")
             params.append(filters["type"])
+        if project:
+            where_clauses.append("project = ?")
+            params.append(project)
 
         sql = f"SELECT * FROM conflicts WHERE {' AND '.join(where_clauses)} ORDER BY created_at DESC"
         cursor = self._conn.execute(sql, params)
@@ -168,4 +180,5 @@ class ConflictQueue:
             "resolvedBy": row["resolved_by"],
             "resolvedAt": row["resolved_at"],
             "createdAt": row["created_at"],
+            "project": row["project"],
         }

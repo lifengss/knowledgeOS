@@ -164,6 +164,45 @@ class DraftCache:
         self._conn.commit()
         return cursor.rowcount > 0
 
+    def update_draft(
+        self,
+        draft_id: str,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        draft_type: Optional[str] = None,
+    ) -> bool:
+        """更新草稿的标题/正文/类型（人工编辑知识条目）。
+
+        Args:
+            draft_id: 草稿 ID
+            title: 新标题（可选）
+            content: 新正文（可选）
+            draft_type: 新类型（可选）
+
+        Returns:
+            是否更新成功（无变化字段时返回 False）
+        """
+        fields: list[str] = []
+        params: list[Any] = []
+        if title is not None:
+            fields.append("title = ?")
+            params.append(title)
+        if content is not None:
+            fields.append("content = ?")
+            params.append(content)
+        if draft_type is not None:
+            fields.append("type = ?")
+            params.append(draft_type)
+        if not fields:
+            return False
+        fields.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(draft_id)
+        sql = f"UPDATE drafts SET {', '.join(fields)} WHERE id = ?"
+        cursor = self._conn.execute(sql, params)
+        self._conn.commit()
+        return cursor.rowcount > 0
+
     def update_drafts_status(self, draft_ids: list[str], status: str) -> int:
         """批量更新草稿状态。
 
@@ -205,6 +244,28 @@ class DraftCache:
         )
         self._conn.commit()
         return cursor.rowcount
+
+    def delete_draft(self, draft_id: str) -> dict[str, Any]:
+        """删除指定草稿及其分解出的子页面缓存。
+
+        Args:
+            draft_id: 草稿 ID
+
+        Returns:
+            包含删除行数的字典
+        """
+        cursor = self._conn.cursor()
+        # 同步清理关联的分解子页面（若表存在）
+        try:
+            cursor.execute(
+                "DELETE FROM draft_sub_pages WHERE parent_draft_id = ?", (draft_id,)
+            )
+        except sqlite3.OperationalError:
+            pass
+        cursor.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
+        affected = cursor.rowcount
+        self._conn.commit()
+        return {"deleted": affected, "id": draft_id}
 
     def _row_to_draft(self, row: sqlite3.Row) -> dict[str, Any]:
         """将数据库行转换为草稿对象。"""
@@ -261,6 +322,18 @@ def cli():
     p_up.add_argument("--status", required=True)
     p_up.add_argument("--score", type=int, default=None)
 
+    # update-draft
+    p_update = sub.add_parser("update-draft", help="更新草稿内容（人工编辑）")
+    p_update.add_argument("--id", required=True)
+    p_update.add_argument("--title", default=None)
+    p_update.add_argument("--content", default=None)
+    p_update.add_argument("--type", default=None)
+
+    # delete-draft
+    p_del = sub.add_parser("delete-draft", help="删除草稿（可批量）")
+    p_del.add_argument("--id", nargs="+", required=True, help="草稿ID，可指定多个")
+    p_del.add_argument("--project", default="default")
+
     # list-audit
     p_audit = sub.add_parser("list-audit", help="列出审计日志")
     p_audit.add_argument("--action", default=None)
@@ -270,6 +343,14 @@ def cli():
     p_audit.add_argument("--end-time", default=None)
     p_audit.add_argument("--page", type=int, default=1)
     p_audit.add_argument("--page-size", type=int, default=20)
+
+    # log-audit
+    p_log = sub.add_parser("log-audit", help="记录审计日志")
+    p_log.add_argument("--action", required=True)
+    p_log.add_argument("--operator", default="system")
+    p_log.add_argument("--target", default=None)
+    p_log.add_argument("--detail", default="{}")
+    p_log.add_argument("--project", default=None)
 
     # list-conflicts
     p_conflicts = sub.add_parser("list-conflicts", help="列出冲突")
@@ -281,6 +362,11 @@ def cli():
     p_resolve = sub.add_parser("resolve-conflict", help="处理冲突")
     p_resolve.add_argument("--id", required=True)
     p_resolve.add_argument("--resolution", required=True)
+
+    # resolve-conflicts (批量)
+    p_resolve_batch = sub.add_parser("resolve-conflicts", help="批量处理冲突")
+    p_resolve_batch.add_argument("--ids", required=True, help="逗号分隔的冲突ID列表")
+    p_resolve_batch.add_argument("--resolution", required=True)
 
     # stats
     p_stats = sub.add_parser("stats", help="获取统计")
@@ -324,6 +410,21 @@ def cli():
         ok = cache.update_draft_status(args.id, args.status, args.score)
         print(json.dumps({"success": ok}, ensure_ascii=False))
 
+    elif args.cmd == "update-draft":
+        ok = cache.update_draft(args.id, title=args.title, content=args.content, draft_type=args.type)
+        print(json.dumps({"success": ok}, ensure_ascii=False))
+
+    elif args.cmd == "delete-draft":
+        total = 0
+        deleted_ids = []
+        for did in args.id:
+            r = cache.delete_draft(did)
+            total += r.get("deleted", 0)
+            if r.get("deleted"):
+                deleted_ids.append(did)
+        print(json.dumps({"success": True, "deleted": total, "ids": deleted_ids},
+                         ensure_ascii=False))
+
     elif args.cmd == "list-audit":
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -343,9 +444,29 @@ def cli():
             filters["startTime"] = args.start_time
         if args.end_time:
             filters["endTime"] = args.end_time
-        result = audit.query(filters)
+        result = audit.query(
+            action=filters.get("action"),
+            operator=filters.get("operator"),
+            limit=int(filters.get("pageSize") or 50),
+            offset=(int(filters.get("page") or 1) - 1) * int(filters.get("pageSize") or 50),
+        )
         audit.close()
         print(json.dumps(result, ensure_ascii=False))
+
+    elif args.cmd == "log-audit":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.audit_log import AuditLog
+        audit = AuditLog(args.db)
+        log_id = audit.log(
+            action=args.action,
+            operator=args.operator,
+            target=args.target,
+            detail=json.loads(args.detail) if args.detail else None,
+            project=args.project,
+        )
+        audit.close()
+        print(json.dumps({"id": log_id}, ensure_ascii=False))
 
     elif args.cmd == "list-conflicts":
         import sys
@@ -364,15 +485,79 @@ def cli():
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from cache.conflict_queue import ConflictQueue
         cq = ConflictQueue(args.db)
-        ok = cq.resolve_conflict(args.id, args.resolution, "system")
-        # 返回处理后的冲突详情
-        conflict = cq.get_conflict_by_id(args.id) if ok else None
+        conflict = cq.get_conflict_by_id(args.id)
+        ok = cq.resolve_conflict(args.id, args.resolution, "system") if conflict else False
+        # 闭环：把冲突处理决策落到草稿上，避免 conflict 草稿悬挂/卡死
+        draft_result = None
+        if ok and conflict:
+            draft_id = conflict.get("draftId")
+            project = conflict.get("project") or "default"
+            if args.resolution in ("merge", "overwrite"):
+                # 先解除 conflict 卡死，再真正入库（保留质量门控，跳过冲突检测）
+                cache.update_draft_status(draft_id, "pending")
+                try:
+                    from skills.single_commit import single_commit
+                    draft_result = single_commit(
+                        draft_id, db_path=args.db, operator="web",
+                        skip_conflict_check=True, project=project
+                    )
+                except Exception as e:
+                    draft_result = {"success": False, "reason": str(e)}
+            elif args.resolution == "discard":
+                cache.update_draft_status(draft_id, "discarded")
+                draft_result = {"success": True, "status": "discarded"}
         cq.close()
         print(json.dumps({
             "success": ok,
             "resolution": args.resolution if ok else None,
             "resolvedBy": "system" if ok else None,
-            "conflict": conflict
+            "conflict": conflict,
+            "draftResult": draft_result
+        }, ensure_ascii=False))
+
+    elif args.cmd == "resolve-conflicts":
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.conflict_queue import ConflictQueue
+        cq = ConflictQueue(args.db)
+        ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+        resolved = []
+        failed = []
+        draft_results = {}
+        for cid in ids:
+            conflict = cq.get_conflict_by_id(cid)
+            if not conflict:
+                failed.append(cid)
+                continue
+            if not cq.resolve_conflict(cid, args.resolution, "system"):
+                failed.append(cid)
+                continue
+            resolved.append(cid)
+            draft_id = conflict.get("draftId")
+            project = conflict.get("project") or "default"
+            if args.resolution in ("merge", "overwrite"):
+                # 先解除 conflict 卡死，再真正入库（保留质量门控，跳过冲突检测）
+                cache.update_draft_status(draft_id, "pending")
+                try:
+                    from skills.single_commit import single_commit
+                    draft_results[draft_id] = single_commit(
+                        draft_id, db_path=args.db, operator="web",
+                        skip_conflict_check=True, project=project
+                    )
+                except Exception as e:
+                    draft_results[draft_id] = {"success": False, "reason": str(e)}
+            elif args.resolution == "discard":
+                cache.update_draft_status(draft_id, "discarded")
+                draft_results[draft_id] = {"success": True, "status": "discarded"}
+        cq.close()
+        print(json.dumps({
+            "success": True,
+            "total": len(ids),
+            "resolvedCount": len(resolved),
+            "resolved": resolved,
+            "failedCount": len(failed),
+            "failed": failed,
+            "draftResults": draft_results
         }, ensure_ascii=False))
 
     elif args.cmd == "stats":
@@ -394,11 +579,11 @@ def cli():
         total_drafts = cursor.fetchone()[0]
 
         cq = ConflictQueue(args.db)
-        pending_conflicts = len(cq.get_pending_conflicts())
+        pending_conflicts = len(cq.get_pending_conflicts(project=args.project))
         cq.close()
 
         audit = AuditLog(args.db)
-        dashboard_stats = audit.get_stats()
+        dashboard_stats = audit.get_stats(args.project)
         audit.close()
 
         # 知识库页面统计：项目私有目录 + 共享目录

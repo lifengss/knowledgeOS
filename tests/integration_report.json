@@ -1,0 +1,309 @@
+{
+  "summary": {
+    "total": 27,
+    "passed": 27,
+    "failed": 0,
+    "error": 0,
+    "skipped": 0,
+    "could_not_run": 0
+  },
+  "results": [
+    {
+      "class": "TestAuditLog",
+      "method": "test_audit_log_list",
+      "node": "tests/test_integration_full.py::TestAuditLog::test_audit_log_list",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.474,
+      "stdout": ".\n1 passed in 0.19s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestBrainPages",
+      "method": "test_brain_page_detail",
+      "node": "tests/test_integration_full.py::TestBrainPages::test_brain_page_detail",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 0.867,
+      "stdout": ".\n1 passed in 0.08s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestBrainPages",
+      "method": "test_brain_pages_all",
+      "node": "tests/test_integration_full.py::TestBrainPages::test_brain_pages_all",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 0.82,
+      "stdout": ".\n1 passed in 0.04s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestConflicts",
+      "method": "test_conflict_resolve",
+      "node": "tests/test_integration_full.py::TestConflicts::test_conflict_resolve",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.12,
+      "stdout": ".\n1 passed in 0.35s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestConflicts",
+      "method": "test_conflicts_list_and_detect",
+      "node": "tests/test_integration_full.py::TestConflicts::test_conflicts_list_and_detect",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.167,
+      "stdout": ".\n1 passed in 0.36s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestDraftAndBrainDelete",
+      "method": "test_brain_single_and_batch_delete",
+      "node": "tests/test_integration_full.py::TestDraftAndBrainDelete::test_brain_single_and_batch_delete",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 2.846,
+      "stdout": ".\n1 passed in 1.56s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestDraftAndBrainDelete",
+      "method": "test_draft_batch_delete",
+      "node": "tests/test_integration_full.py::TestDraftAndBrainDelete::test_draft_batch_delete",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.485,
+      "stdout": ".\n1 passed in 0.61s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestDraftAndBrainDelete",
+      "method": "test_draft_single_delete",
+      "node": "tests/test_integration_full.py::TestDraftAndBrainDelete::test_draft_single_delete",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.852,
+      "stdout": ".\n1 passed in 0.59s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestDrafts",
+      "method": "test_batch_commit",
+      "node": "tests/test_integration_full.py::TestDrafts::test_batch_commit",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.634,
+      "stdout": ".\n1 passed in 0.62s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestDrafts",
+      "method": "test_draft_crud",
+      "node": "tests/test_integration_full.py::TestDrafts::test_draft_crud",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 2.567,
+      "stdout": ".\n1 passed in 1.00s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestGenerateCases",
+      "method": "test_generate_cases",
+      "node": "tests/test_integration_full.py::TestGenerateCases::test_generate_cases",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.068,
+      "stdout": ".\n1 passed in 0.20s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestGraphData",
+      "method": "test_graph_data",
+      "node": "tests/test_integration_full.py::TestGraphData::test_graph_data",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.049,
+      "stdout": ".\n1 passed in 0.10s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestHealth",
+      "method": "test_health_ok",
+      "node": "tests/test_integration_full.py::TestHealth::test_health_ok",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.243,
+      "stdout": ".\n1 passed in 0.06s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestPrivatePromote",
+      "method": "test_private_pages_and_promote",
+      "node": "tests/test_integration_full.py::TestPrivatePromote::test_private_pages_and_promote",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 2.398,
+      "stdout": ".\n1 passed in 0.74s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestPrivatePromote",
+      "method": "test_promote_invalid_category",
+      "node": "tests/test_integration_full.py::TestPrivatePromote::test_promote_invalid_category",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 0.957,
+      "stdout": ".\n1 passed in 0.04s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestPrivatePromote",
+      "method": "test_promote_path_traversal_rejected",
+      "node": "tests/test_integration_full.py::TestPrivatePromote::test_promote_path_traversal_rejected",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 0.942,
+      "stdout": ".\n1 passed in 0.05s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestProjectsCRUD",
+      "method": "test_create_and_delete_project",
+      "node": "tests/test_integration_full.py::TestProjectsCRUD::test_create_and_delete_project",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.74,
+      "stdout": ".\n1 passed in 0.11s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestProjectsCRUD",
+      "method": "test_delete_default_forbidden",
+      "node": "tests/test_integration_full.py::TestProjectsCRUD::test_delete_default_forbidden",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.121,
+      "stdout": ".\n1 passed in 0.04s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestProjectsCRUD",
+      "method": "test_delete_nonexistent",
+      "node": "tests/test_integration_full.py::TestProjectsCRUD::test_delete_nonexistent",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.493,
+      "stdout": ".\n1 passed in 0.06s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestProjectsCRUD",
+      "method": "test_list_projects",
+      "node": "tests/test_integration_full.py::TestProjectsCRUD::test_list_projects",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.782,
+      "stdout": ".\n1 passed in 0.07s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestPythonModules",
+      "method": "test_draft_cache_log_audit",
+      "node": "tests/test_integration_full.py::TestPythonModules::test_draft_cache_log_audit",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.508,
+      "stdout": ".\n1 passed in 0.19s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestPythonModules",
+      "method": "test_quality_gate_evaluate",
+      "node": "tests/test_integration_full.py::TestPythonModules::test_quality_gate_evaluate",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.393,
+      "stdout": "s\n1 skipped in 0.10s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestQualityGate",
+      "method": "test_quality_gate_low",
+      "node": "tests/test_integration_full.py::TestQualityGate::test_quality_gate_low",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 2.456,
+      "stdout": ".\n1 passed in 0.77s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestQualityGate",
+      "method": "test_quality_gate_pass",
+      "node": "tests/test_integration_full.py::TestQualityGate::test_quality_gate_pass",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.727,
+      "stdout": ".\n1 passed in 0.72s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestSearch",
+      "method": "test_search",
+      "node": "tests/test_integration_full.py::TestSearch::test_search",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.15,
+      "stdout": ".\n1 passed in 0.23s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestSourceUpload",
+      "method": "test_source_upload_content",
+      "node": "tests/test_integration_full.py::TestSourceUpload::test_source_upload_content",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.918,
+      "stdout": ".\n1 passed in 0.37s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    },
+    {
+      "class": "TestStats",
+      "method": "test_stats",
+      "node": "tests/test_integration_full.py::TestStats::test_stats",
+      "outcome": "passed",
+      "returncode": 0,
+      "duration_s": 1.06,
+      "stdout": ".\n1 passed in 0.21s\n",
+      "stderr": "",
+      "error_excerpt": ""
+    }
+  ]
+}

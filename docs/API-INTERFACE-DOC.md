@@ -1,179 +1,87 @@
 # 知识管理系统 V1.0 接口文档
 
-> 本文档描述 V1.0 所有外部接口与内部模块接口。
-> - REST API 遵循 RESTful 设计规范
-> - 内部模块接口遵循 JSDoc / TSDoc 注释规范
+> 本文档为**对外接口说明文档**，与网页"接口文档"页（#apidocs）内容保持一致，单一数据源为 `web/src/api-docs-data.js`。
+> 真实端点以 `api/server.js` 为准；MCP 服务已**实现**为 `mcp_connector/` 下的 stdio 传输服务（FastMCP）。AI 平台对接见 §11.5。
+> 当对外 REST 或 MCP 服务发生变更时，须同步更新本文件与 `web/src/api-docs-data.js`（见 `script-check-skill` 规则 6）。
 
 ---
 
-## 1. 接口总览
-
-### 1.1 接口分类
-
-| 接口类型 | 协议 | 调用方 | 说明 |
-|----------|------|--------|------|
-| REST API | HTTP | 业务系统前端、Web UI、SDK | 标准化 OpenAPI 文档 |
-| MCP 接口 | MCP Protocol | AI 平台（CodeBuddy/WorkBuddy/Coze） | 知识查询 / 知识写入 |
-| 内部模块接口 | TypeScript / JavaScript | 系统内部各层 | 缓冲层、Skills、工具函数 |
-| Python 子进程接口 | STDIN/STDOUT/JSON | tfidf-code-slicer Skill | 代码解析 |
-
-### 1.2 基础信息
+## 1. 通用约定
 
 | 项目 | 内容 |
 |------|------|
-| REST API Base URL | `http://localhost:3000` |
-| MCP 查询接口 | `http://localhost:8100` |
-| MCP 写入接口 | `http://localhost:8101` |
-| OpenAPI 文档 | `api/openapi.yaml` |
-| 内容协商 | 请求/响应均为 `application/json` |
-| 认证方式 | V1.0 暂不启用，V2.0 接入 SSO |
+| REST 接口基址 | `http://localhost:3000/api` |
+| 内容协商 | 请求/响应均为 `application/json`（源上传支持 `multipart/form-data`） |
+| 版本 | V1.0 |
+| 认证方式 | V1.0 暂不启用鉴权 |
+| MCP 查询接口 | `http://localhost:8100`（规划中） |
+| MCP 写入接口 | `http://localhost:8101`（规划中） |
 
-### 1.3 HTTP 状态码
+### 1.1 统一返回结构
 
-| 状态码 | 含义 | 使用场景 |
-|--------|------|----------|
-| 200 OK | 请求成功 | GET/POST/PUT/DELETE 成功 |
-| 201 Created | 资源创建成功 | 批量写入、源数据导入 |
-| 400 Bad Request | 请求参数错误 | 缺少必填字段、格式错误 |
-| 404 Not Found | 资源不存在 | 页面/草稿/冲突 ID 不存在 |
-| 409 Conflict | 业务冲突 | 草稿冲突未处理、重复提交 |
-| 500 Internal Server Error | 服务器内部错误 | 内核异常、数据库错误 |
-
-### 1.4 通用响应格式
+所有 REST 接口统一返回：
 
 ```json
-{
-  "success": true,
-  "message": "操作成功",
-  "data": {}
-}
+{ "success": true, "data": {}, "error": "..." }
 ```
 
-错误响应：
+- 查询成功：`success=true`，结果在 `data`；
+- 失败：`success=false`，`error` 含原因。
 
-```json
-{
-  "success": false,
-  "message": "错误描述",
-  "errorCode": "ERROR_CODE"
-}
-```
+### 1.2 多项目隔离
+
+- 查询接口通过查询参数 `?project=<id>` 指定项目；
+- 写入接口通过请求体 `{ "project": "<id>" }` 指定项目；未指定时默认 `default`；
+- Brain 页面按"项目私有库 + 共享库"合并去重（私有优先）。
+
+### 1.3 MCP 状态
+
+MCP 服务（8100 查询 / 8101 写入）为规划中能力，当前代码尚未实现真实 MCP Server。以下为其设计规格，供对接参考。
 
 ---
 
-## 2. RESTful API 接口
+## 2. 系统与健康
 
-### 2.1 源数据管理
+### GET /api/health
 
-#### POST /api/source-upload
+**功能**：健康检查，返回服务存活状态、版本与时间戳，可用于探活与监控。
 
-**功能**：上传 PRD、代码、缺陷、执行结果等源数据文件到知识库
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| type | string | 是 | 数据类型：`prd` / `code` / `defect` / `report` |
-| file | file | 是 | 上传文件 |
-| note | string | 否 | 备注说明 |
+**参数**：无。
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/source-upload \
-  -F "type=prd" \
-  -F "file=@/path/to/prd.md" \
-  -F "note=用户登录模块PRD"
+curl http://localhost:3000/api/health
 ```
 
 **响应示例**：
 
 ```json
 {
-  "success": true,
-  "message": "源数据上传成功",
-  "data": {
-    "fileName": "prd.md",
-    "importedPages": ["project-wiki/user-login-flow.md"]
-  }
+  "status": "ok",
+  "version": "1.0.0",
+  "time": "2026-07-22T08:00:00.000Z"
 }
 ```
 
-**错误码**：
-
-| 错误码 | 说明 |
-|--------|------|
-| MISSING_FILE | 未上传文件 |
-| INVALID_TYPE | 数据类型不合法 |
-| IMPORT_FAILED | 导入失败 |
+**注**：无副作用，无需 `project` 参数。
 
 ---
 
-### 2.2 用户确认操作
+## 3. 项目管理
 
-#### POST /api/confirm
+枚举、创建、删除多项目知识库。配置持久化于 `config/projects.json`。
 
-**功能**：对草稿执行入库或丢弃等确认操作
+### GET /api/projects
 
-**请求参数**：
+**功能**：获取多项目配置（默认项目、共享脑目录、各项目元信息），供前端枚举与切换知识库。
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| draftId | string | 是 | 草稿 ID |
-| action | string | 是 | 操作类型：`commit` / `discard` |
+**参数**：无。
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/confirm \
-  -H "Content-Type: application/json" \
-  -d '{"draftId": "D-20260715-001", "action": "commit"}'
-```
-
-**响应示例**：
-
-```json
-{
-  "success": true,
-  "message": "草稿入库成功",
-  "data": {
-    "draftId": "D-20260715-001",
-    "committedPages": ["quality-rules/QR-018.md"]
-  }
-}
-```
-
-**错误码**：
-
-| 错误码 | 说明 |
-|--------|------|
-| DRAFT_NOT_FOUND | 草稿不存在 |
-| INVALID_ACTION | 操作类型不合法 |
-| CONFLICT_UNRESOLVED | 草稿存在未处理冲突 |
-| QUALITY_CHECK_FAILED | 质量评分未通过 |
-
----
-
-### 2.3 知识库浏览
-
-#### GET /api/brain
-
-**功能**：获取知识库页面列表
-
-**查询参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| type | string | 否 | 页面类型：`quality-rule` / `defect` / `project-wiki` / `test-case` |
-| category | string | 否 | 分类 |
-| keyword | string | 否 | 关键词搜索 |
-| page | integer | 否 | 页码，默认 1 |
-| pageSize | integer | 否 | 每页数量，默认 20 |
-
-**请求示例**：
-
-```bash
-curl "http://localhost:3000/api/brain?type=quality-rule&keyword=camelCase"
+curl http://localhost:3000/api/projects
 ```
 
 **响应示例**：
@@ -182,77 +90,92 @@ curl "http://localhost:3000/api/brain?type=quality-rule&keyword=camelCase"
 {
   "success": true,
   "data": {
-    "total": 24,
-    "page": 1,
-    "pageSize": 20,
-    "items": [
-      {
-        "id": "QR-001",
-        "title": "编码规范：函数命名使用 camelCase",
-        "type": "quality-rule",
-        "category": "coding-standards",
-        "updated": "2026-07-15",
-        "status": "active"
-      }
+    "defaultProject": "default",
+    "sharedBrain": "brains/_shared",
+    "projects": [
+      { "id": "default", "name": "默认项目", "description": "", "brainPath": "brain" },
+      { "id": "demo", "name": "示例项目", "description": "demo", "brainPath": "brains/demo" }
     ]
   }
 }
 ```
 
----
+**注**：只读接口。`brainPath` 为相对项目根的知识库目录。
 
-#### GET /api/brain/{pageId}
+### POST /api/projects
 
-**功能**：获取知识库页面详情
+**功能**：运行时新建项目——写入 `config/projects.json` 并在 `brains/<id>` 建立私有知识库目录。
 
-**路径参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| pageId | string | 是 | 页面 ID |
+| id | body | 是 | 项目 ID（字母/数字/_/-，创建后不可改） |
+| name | body | 是 | 项目名称 |
+| description | body | 否 | 项目描述 |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/projects \
+  -H "Content-Type: application/json" \
+  -d '{"id":"demo2","name":"示例项目二","description":"用于回归测试"}'
+```
 
 **响应示例**：
 
 ```json
 {
   "success": true,
-  "data": {
-    "id": "QR-001",
-    "title": "编码规范：函数命名使用 camelCase",
-    "type": "quality-rule",
-    "category": "coding-standards",
-    "content": "# 编码规范...",
-    "frontmatter": {
-      "type": "quality-rule",
-      "rule_id": "QR-001",
-      "status": "active"
-    },
-    "updated": "2026-07-15",
-    "status": "active"
-  }
+  "data": { "id": "demo2", "name": "示例项目二", "description": "用于回归测试", "brainPath": "brains/demo2" }
 }
 ```
 
----
+**注**：`id` 为空或已存在会被 400 拒绝。
 
-### 2.4 知识库批量读写
+### DELETE /api/projects/:id
 
-#### POST /api/brain/batch-read
+**功能**：删除项目配置并清理其私有 brain 目录（默认项目不可删）。
 
-**功能**：根据 ID 列表批量读取 Brain 页面
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| pageIds | string[] | 是 | 页面 ID 列表 |
+| id | path | 是 | 项目 ID |
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/brain/batch-read \
-  -H "Content-Type: application/json" \
-  -d '{"pageIds": ["QR-001", "TC-001"]}'
+curl -X DELETE http://localhost:3000/api/projects/demo2
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "id": "demo2" } }
+```
+
+**注**：会删除私有知识库文件，操作不可恢复。
+
+---
+
+## 4. 草稿管理
+
+测试产物草稿的增删查改与入库（单条/批量）。草稿为进入知识库前的缓冲层。
+
+### GET /api/drafts
+
+**功能**：分页获取草稿，可按状态/来源/类型过滤。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| status | query | 否 | 状态：pending/approved/conflict/merged/discarded/rejected |
+| source | query | 否 | 来源：human_edit/upload/ai_gen 等 |
+| type | query | 否 | 类型：quality_rule/defect_experience/test_case/test_script 等 |
+| limit | query | 否 | 每页数量，默认 100 |
+| offset | query | 否 | 偏移，默认 0 |
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/drafts?status=pending&limit=20&project=default"
 ```
 
 **响应示例**：
@@ -261,43 +184,24 @@ curl -X POST http://localhost:3000/api/brain/batch-read \
 {
   "success": true,
   "data": [
-    {
-      "id": "QR-001",
-      "title": "编码规范：函数命名使用 camelCase",
-      "content": "..."
-    }
+    { "id": "a1b2c3", "status": "pending", "source": "human_edit", "type": "quality_rule",
+      "title": "空指针防护规则", "score": null, "created_at": "2026-07-22T08:00:00", "project": "default" }
   ]
 }
 ```
 
----
+### GET /api/drafts/:id
 
-#### POST /api/brain/batch-write
+**功能**：按 ID 获取草稿完整内容。
 
-**功能**：批量导入或更新 Brain 页面
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| pages | object[] | 是 | 页面列表，每个页面包含 id/title/type/content/frontmatter |
+| id | path | 是 | 草稿 ID |
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/brain/batch-write \
-  -H "Content-Type: application/json" \
-  -d '{
-    "pages": [
-      {
-        "id": "QR-018",
-        "title": "新增：密码复杂度校验规则",
-        "type": "quality-rule",
-        "content": "# 密码复杂度...",
-        "frontmatter": {"type": "quality-rule", "rule_id": "QR-018"}
-      }
-    ]
-  }'
+curl http://localhost:3000/api/drafts/a1b2c3
 ```
 
 **响应示例**：
@@ -305,38 +209,442 @@ curl -X POST http://localhost:3000/api/brain/batch-write \
 ```json
 {
   "success": true,
-  "message": "批量写入成功",
+  "data": { "id": "a1b2c3", "status": "pending", "type": "quality_rule", "title": "...", "content": "# 规则\n...", "metadata": {} }
+}
+```
+
+**注**：`content` 为 Markdown 正文。
+
+### PUT /api/drafts/:id
+
+**功能**：人工更新草稿的标题/正文/类型（入库前可反复编辑）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| id | path | 是 | 草稿 ID |
+| title | body | 否 | 新标题 |
+| content | body | 否 | 新 Markdown 正文 |
+| type | body | 否 | 新类型（如 quality_rule / defect_experience） |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:3000/api/drafts/a1b2c3 \
+  -H "Content-Type: application/json" \
+  -d '{"title":"修订后的标题","content":"# 规则\n修订内容..."}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "success": true } }
+```
+
+**注**：仅更新传入字段；不影响草稿状态，仍需单条/批量入库才进入知识库。
+
+### POST /api/drafts
+
+**功能**：向缓冲层新增一条草稿（人工编辑或外部写入）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| source | body | 否 | 来源，默认 human_edit |
+| type | body | 否 | 类型，默认 quality_rule |
+| title | body | 否 | 标题，默认"未命名草稿" |
+| content | body | 否 | Markdown 正文 |
+| metadata | body | 否 | 附加元数据对象 |
+| project | body | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/drafts \
+  -H "Content-Type: application/json" \
+  -d '{"source":"human_edit","type":"quality_rule","title":"空指针防护","content":"# 规则\n...","project":"default"}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "id": "a1b2c3", "status": "pending", "project": "default" } }
+```
+
+**注**：返回新建草稿的 ID。当前仅支持单条创建；如需批量创建，请由调用方并行调用本接口（后续版本可能提供 `POST /api/drafts/batch`）。
+
+### PUT /api/drafts/:id/status
+
+**功能**：人工设置草稿状态（如 approved/rejected/discarded）及质量评分。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| id | path | 是 | 草稿 ID |
+| status | body | 是 | 目标状态 |
+| score | body | 否 | 质量评分（可选） |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:3000/api/drafts/a1b2c3/status \
+  -H "Content-Type: application/json" -d '{"status":"approved","score":85}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "id": "a1b2c3", "status": "approved", "score": 85 } }
+```
+
+### POST /api/drafts/:id/commit
+
+**功能**：单条入库到知识库（Brain）。会走质量门控，命中冲突可跳过检测。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| id | path | 是 | 草稿 ID |
+| skip_conflict_check | body | 否 | 跳过冲突检测（覆盖用） |
+| skip_quality_gate | body | 否 | 跳过质量门控（谨慎） |
+| project | body | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/drafts/a1b2c3/commit \
+  -H "Content-Type: application/json" -d '{"skip_conflict_check":false}'
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
   "data": {
-    "created": 1,
-    "updated": 0,
-    "failed": 0
+    "draftId": "a1b2c3",
+    "committedPage": "quality-rules/a1b2c3.md",
+    "score": 82,
+    "conflictId": null,
+    "reason": "ok"
   }
 }
 ```
 
+**注**：入库后草稿状态置为 merged；若质量不达标或被冲突阻断，返回 `reason` 说明。
+
+### POST /api/drafts/batch-commit
+
+**功能**：批量入库；未传 `ids` 时提交当前项目全部待入库草稿（--all）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| ids | body | 否 | 草稿 ID 数组；缺省提交全部 pending/approved |
+| skip_conflict_check | body | 否 | 跳过冲突检测 |
+| skip_quality_gate | body | 否 | 跳过质量门控 |
+| project | body | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/drafts/batch-commit \
+  -H "Content-Type: application/json" \
+  -d '{"ids":["a1b2c3","d4e5f6"],"skip_conflict_check":false}'
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 2, "committed": 2, "skipped": 0,
+    "conflicts": [], "details": [ { "draftId": "a1b2c3", "status": "merged" } ]
+  }
+}
+```
+
+**注**：无变更不写库；命中冲突的草稿进入 conflict 状态等待人工决策。
+
+### DELETE /api/drafts/:id
+
+**功能**：物理删除一条草稿。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| id | path | 是 | 草稿 ID |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:3000/api/drafts/a1b2c3
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "id": "a1b2c3", "deleted": true } }
+```
+
+**注**：不可恢复。
+
+### DELETE /api/drafts
+
+**功能**：按 IDs 批量物理删除草稿。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| ids | body | 是 | 草稿 ID 数组 |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:3000/api/drafts \
+  -H "Content-Type: application/json" -d '{"ids":["a1b2c3","d4e5f6"]}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "deleted": ["a1b2c3","d4e5f6"] } }
+```
+
+**注**：`ids` 为空会被 400 拒绝。
+
 ---
 
-### 2.5 全量检索
+## 5. 冲突管理
 
-#### POST /api/search
+当入库草稿与既有知识规则冲突时进入冲突队列，需人工决策（merge/overwrite/discard/keep_both）。
 
-**功能**：支持 RRF 混合搜索、关键词搜索、知识图谱查询
+### GET /api/conflicts
 
-**请求参数**：
+**功能**：获取冲突队列，可按状态过滤。
 
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| query | string | 是 | 查询内容 |
-| mode | string | 是 | 检索模式：`rrf` / `keyword` / `graph` |
-| limit | integer | 否 | 返回结果数量，默认 10 |
-| filters | object | 否 | 过滤条件，如 type、category |
+| status | query | 否 | 状态过滤（如 pending） |
+| limit | query | 否 | 数量，默认 100 |
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/conflicts?status=pending&project=default"
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 12, "draft_id": "a1b2c3", "existing_rule": "旧规则摘要", "new_rule": "新规则摘要",
+      "conflict_type": "content", "resolution": null, "resolved_by": null,
+      "resolved_at": null, "created_at": "2026-07-22T08:00:00", "project": "default" }
+  ]
+}
+```
+
+**注**：`resolution` 为 null 表示待处理；处理后写回草稿状态形成闭环。
+
+### POST /api/conflicts/detect
+
+**功能**：对所有待入库草稿执行与既有知识库的冲突检测，生成/更新冲突队列。
+
+**参数**：无。
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/conflicts/detect
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "checked": 5, "conflicts": 2 } }
+```
+
+**注**：无需请求体；作用于当前项目。
+
+### PUT /api/conflicts/:id/resolve
+
+**功能**：按决议处理冲突并回写对应草稿（merge/overwrite/keep_both→入库；discard→丢弃）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| id | path | 是 | 冲突记录 ID |
+| resolution | body | 是 | 决议：merge / overwrite / discard / keep_both |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:3000/api/conflicts/12/resolve \
+  -H "Content-Type: application/json" -d '{"resolution":"merge"}'
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "conflictId": 12, "draftId": "a1b2c3", "resolution": "merge",
+    "conflictResolved": true,
+    "draftResult": { "success": true, "status": "merged", "committedPage": "quality-rules/a1b2c3.md" }
+  }
+}
+```
+
+**注**：处理后会同步更新草稿状态，形成"冲突→决策→回写"闭环。
+
+### PUT /api/conflicts/resolve-batch
+
+**功能**：对一组冲突按同一决议批量处理并回写草稿。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| ids | body | 是 | 冲突 ID 数组 |
+| resolution | body | 是 | 统一决议 |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:3000/api/conflicts/resolve-batch \
+  -H "Content-Type: application/json" -d '{"ids":[12,13],"resolution":"merge"}'
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": { "total": 2, "resolvedCount": 2, "resolved": [12,13], "failedCount": 0, "failed": [], "draftResults": {} }
+}
+```
+
+**注**：`ids` 为空会被 400 拒绝。
+
+---
+
+## 6. 质量门控
+
+入库前的质量评估（结构规范、来源可信度等），不达标将被拦截至草稿层。
+
+### POST /api/quality-gate/check
+
+**功能**：对指定草稿（或全部）执行质量门控评估。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| draft_ids | body | 否 | 逗号分隔的草稿 ID；缺省检查全部 pending |
+| project | body | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/quality-gate/check \
+  -H "Content-Type: application/json" -d '{"draft_ids":"a1b2c3,d4e5f6"}'
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "checked": 2, "passed": 1, "failed": 1,
+    "results": [ { "draft_id": "a1b2c3", "passed": true, "score": 82, "reason": "ok" } ]
+  }
+}
+```
+
+**注**：`score` 低于阈值（默认 60）视为不通过。
+
+---
+
+## 7. 审计与统计
+
+### GET /api/audit-log
+
+**功能**：查询操作审计记录，支持过滤与分页。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| action | query | 否 | 操作类型过滤（如 commit/delete/promote） |
+| operator | query | 否 | 操作者过滤 |
+| target | query | 否 | 目标对象过滤 |
+| startTime | query | 否 | 起始时间 |
+| endTime | query | 否 | 结束时间 |
+| page | query | 否 | 页码，默认 1 |
+| pageSize | query | 否 | 每页大小，默认 20 |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/audit-log?action=commit&page=1&pageSize=20"
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ { "id": 1, "action": "commit", "operator": "web-ui", "target": "default:quality-rules/a1b2c3.md",
+      "detail": "{}", "created_at": "2026-07-22T08:00:00" } ],
+    "total": 1, "page": 1, "pageSize": 20
+  }
+}
+```
+
+**注**：审计记录写入失败不阻断主流程。
+
+### GET /api/stats
+
+**功能**：汇总当前项目的知识库规模与待办。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/stats?project=default"
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalPages": 320, "pendingDrafts": 5, "pendingConflicts": 2,
+    "totalRules": 120, "totalCases": 80, "totalDefects": 60,
+    "mergedDrafts": 300, "rejectedDrafts": 10, "conflictDrafts": 0
+  }
+}
+```
+
+**注**：dashboard 页即消费此接口。
+
+---
+
+## 8. 检索与生成
+
+### POST /api/search
+
+**功能**：在知识库（按项目私有+共享合并）中检索相关页面片段。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| query | body | 否 | 检索关键词/问题 |
+| mode | body | 否 | 检索模式：keyword（默认）/ semantic |
+| limit | body | 否 | 返回条数，默认 10 |
 
 **请求示例**：
 
 ```bash
 curl -X POST http://localhost:3000/api/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "用户登录", "mode": "rrf", "limit": 5}'
+  -H "Content-Type: application/json" -d '{"query":"登录失败处理","mode":"keyword","limit":5}'
 ```
 
 **响应示例**：
@@ -344,109 +652,29 @@ curl -X POST http://localhost:3000/api/search \
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": "TC-001",
-      "title": "测试用例：用户登录",
-      "type": "test-case",
-      "score": 0.92,
-      "snippet": "正向用例：使用有效账号密码登录..."
-    }
-  ]
+  "data": {
+    "query": "登录失败处理",
+    "results": [ { "category": "defect-experience", "id": "x9", "title": "登录超时", "path": "defect-experience/x9.md", "score": 0.9, "snippet": "..." } ]
+  }
 }
 ```
 
----
+**注**：结果按相关度排序。
 
-### 2.6 草稿管理
+### POST /api/generate-cases
 
-#### GET /api/drafts
+**功能**：基于检索到的知识上下文，调用 case_generator 生成测试用例/脚本草稿。
 
-**功能**：获取草稿列表
-
-**查询参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| status | string | 否 | 草稿状态：`pending` / `conflict` / `merged` / `discarded` / `rejected` / `expired` |
-| source | string | 否 | 来源：`human_edit` / `execution_feedback` |
-| type | string | 否 | 草稿类型 |
-
-**响应示例**：
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "D-20260715-001",
-      "source": "human_edit",
-      "type": "quality_rule",
-      "title": "新增：密码复杂度校验规则",
-      "status": "pending",
-      "createdAt": "2026-07-15 14:32"
-    }
-  ]
-}
-```
-
----
-
-### 2.7 冲突处理
-
-#### GET /api/conflicts
-
-**功能**：获取冲突列表
-
-**查询参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| status | string | 否 | 冲突状态：`pending` / `resolved` |
-| type | string | 否 | 冲突类型：`duplicate` / `contradiction` / `overlap` |
-
-**响应示例**：
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "C-001",
-      "draftId": "D-20260715-001",
-      "type": "overlap",
-      "existingRule": "QR-008 密码长度不得小于 8 位",
-      "newRule": "新增密码复杂度校验规则",
-      "status": "pending"
-    }
-  ]
-}
-```
-
----
-
-#### POST /api/conflicts/{conflictId}/resolve
-
-**功能**：对冲突执行合并、覆盖或丢弃操作
-
-**路径参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| conflictId | string | 是 | 冲突 ID |
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| resolution | string | 是 | 处理方式：`merge` / `overwrite` / `discard` |
+| query | body | 否 | 生成所需的问题/需求描述 |
+| limit | body | 否 | 生成数量，默认 5 |
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/conflicts/C-001/resolve \
-  -H "Content-Type: application/json" \
-  -d '{"resolution": "merge"}'
+curl -X POST http://localhost:3000/api/generate-cases \
+  -H "Content-Type: application/json" -d '{"query":"支付流程","limit":3}'
 ```
 
 **响应示例**：
@@ -454,151 +682,87 @@ curl -X POST http://localhost:3000/api/conflicts/C-001/resolve \
 ```json
 {
   "success": true,
-  "message": "冲突已合并",
-  "data": {
-    "conflictId": "C-001",
-    "resolution": "merge"
-  }
+  "data": { "query": "支付流程", "generated": [ { "id": "g1", "type": "test_case", "title": "..." } ] }
 }
 ```
 
+**注**：生成结果以草稿形式落库，待人工审核入库。
+
 ---
 
-### 2.8 审计日志
+## 9. 源数据上传
 
-#### GET /api/audit
+导入代码/PRD/需求列表等源数据。代码 → 解析「API 调用依赖」图谱（project-wiki/api-*.md）；PRD/需求列表 → 直接沉淀为「项目描述」Wiki（project-wiki/{prd,req}-*.md），形成项目 Wiki 供按功能模块选测试范围。两者在知识库中区分清晰：API 调用依赖来自代码，项目描述来自文档。
 
-**功能**：获取操作审计日志
+### POST /api/source-upload
 
-**查询参数**：
+**功能**：multipart 上传文件（支持代码压缩包 zip/tar/7z 或单文件），或 JSON 直接传 content。
 
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| action | string | 否 | 操作类型 |
-| operator | string | 否 | 操作者 |
-| target | string | 否 | 操作对象 |
-| startTime | string | 否 | 开始时间，ISO 8601 |
-| endTime | string | 否 | 结束时间，ISO 8601 |
-| page | integer | 否 | 页码 |
-| pageSize | integer | 否 | 每页数量 |
-
-**响应示例**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "total": 156,
-    "items": [
-      {
-        "id": "A-001",
-        "action": "commit",
-        "operator": "user-1",
-        "target": "QR-012",
-        "detail": "批量入库质量规则",
-        "createdAt": "2026-07-15 10:15"
-      }
-    ]
-  }
-}
-```
-
----
-
-### 2.9 全局统计面板
-
-#### GET /api/dashboard
-
-**功能**：返回入库数量、草稿堆积量、冲突次数、检索频次等统计指标
-
-**响应示例**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "commitCount": 156,
-    "pendingDraftCount": 3,
-    "pendingConflictCount": 2,
-    "searchCount": 342,
-    "qualityScoreAvg": 76,
-    "today": {
-      "commitCount": 5,
-      "searchCount": 48
-    },
-    "thisWeek": {
-      "commitCount": 23,
-      "searchCount": 342
-    }
-  }
-}
-```
-
----
-
-### 2.10 验证性推理测试
-
-#### POST /api/verify-search
-
-**功能**：输入测试问题，调用知识库做单次检索/推理
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| question | string | 是 | 测试问题 |
-| mode | string | 否 | 检索模式，默认 `rrf` |
-| limit | integer | 否 | 返回数量，默认 5 |
+| file | form | 否 | 上传文件（代码类自动解析） |
+| type | form/body | 否 | 数据类型：code(默认)/prd/requirement/defect/report |
+| note | form/body | 否 | 文档标题/备注 |
+| content | body | 否 | 非代码类型时直接传正文 |
+| project | body | 否 | 归属项目，默认 default |
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/verify-search \
+# 代码压缩包（multipart）→ 生成 API 调用依赖图谱
+curl -X POST http://localhost:3000/api/source-upload -F "file=@code.zip" -F "type=code" -F "project=default"
+# PRD（直接沉淀为项目描述 Wiki）
+curl -X POST http://localhost:3000/api/source-upload -F "file=@prd.md" -F "type=prd" -F "note=电商平台PRD" -F "project=default"
+# 需求列表（直接沉淀为项目描述 Wiki，优先级高于 PRD）
+curl -X POST http://localhost:3000/api/source-upload -F "file=@req.md" -F "type=requirement" -F "note=需求列表" -F "project=default"
+# 纯文本直接沉淀（无文件，JSON content）→ 用于 AI 生成的大纲直接入库
+curl -X POST http://localhost:3000/api/source-upload \
   -H "Content-Type: application/json" \
-  -d '{"question": "用户登录接口需要校验哪些边界条件？"}'
+  -d '{"type":"prd","content":"# 大纲\n...","note":"测试用例大纲","project":"default"}'
 ```
 
 **响应示例**：
 
 ```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "QR-001",
-      "title": "编码规范：函数命名使用 camelCase",
-      "score": 0.85,
-      "snippet": "..."
-    }
-  ]
-}
+{ "success": true, "data": { "summary": "已沉淀为项目描述 Wiki：prd-xxx.md", "slug": "prd-xxx", "uploadType": "prd", "category": "project-wiki" } }
 ```
 
----
+**注**：code → 解压切片解析写入草稿并生成 API 依赖图谱(api-overview.md)；prd/requirement → 直接写入 project-wiki（前端「按功能模块」测试范围的数据源），区别于代码产生的 API 调用依赖图谱。
 
-### 2.11 变更回调
+### GET /api/wiki-modules
 
-#### POST /api/webhook/register
+**功能**：从项目描述 Wiki（PRD / 需求列表）解析功能模块清单，供前端「按功能模块」选择测试范围。
 
-**功能**：注册知识库变更时的回调地址
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
+| 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
-| url | string | 是 | 回调地址 |
-| events | string[] | 是 | 关注事件：`page_created` / `page_updated` / `draft_committed` / `conflict_detected` |
-| secret | string | 否 | 回调签名密钥 |
+| project | query | 否 | 项目隔离，默认 default |
 
 **请求示例**：
 
 ```bash
-curl -X POST http://localhost:3000/api/webhook/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://your-app.com/webhook/knowledge",
-    "events": ["page_created", "draft_committed"]
-  }'
+curl "http://localhost:3000/api/wiki-modules?project=default"
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "available": true, "source": "prd", "modules": [ { "id": "用户管理", "label": "用户管理" } ] } }
+```
+
+**注**：优先级：需求列表(req-*) > PRD(prd-*)；两者皆无则 `available=false`（前端该标签禁用）。功能模块取自文档二级/三级标题。
+
+### GET /api/wiki/api-deps
+
+**功能**：解析 `project-wiki/api-*.md` 契约页面为结构化列表，供「项目 Wiki → API 调用依赖」以列表方式展示，并关联图谱可视化的 API 依赖图谱（点击模块「在图谱中查看」聚焦该模块节点）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/wiki/api-deps?project=default"
 ```
 
 **响应示例**：
@@ -606,385 +770,403 @@ curl -X POST http://localhost:3000/api/webhook/register \
 ```json
 {
   "success": true,
-  "message": "回调注册成功",
   "data": {
-    "webhookId": "WH-001"
+    "overview": { "stats": { "接口定义": 376, "调用依赖关系": 1826, "代码文件": 34 }, "modules": [ { "id": "api-auth", "title": "Auth 模块" } ] },
+    "modules": [ { "id": "api-auth", "module": "auth", "title": "API 契约：auth", "interfaces": [ { "name": "auth.login", "params": "token", "returns": "" } ], "calls": [ { "from": "auth.login", "to": "auth.check", "type": "call" } ] } ]
   }
 }
 ```
 
+**注**：`interfaces` 来自 `## 接口列表` 段（`→ (params: ...)` 解析为 params，其它解析为 returns）；`calls` 来自 `## 调用关系` 段（`a → b （type）`）；`overview.stats` 来自 `api-overview.md` 的 `**N** 个X` 统计。
+
 ---
 
-## 3. MCP 接口
+## 10. GBrain 知识页面
 
-### 3.1 接口说明
+知识库（Brain）页面的读取、晋升共享与删除。分类：quality-rules / defect-experience / project-wiki / test-cases。
 
-MCP 接口不是 AI 智能体，而是知识系统的接口服务。AI 平台 harness 负责工具调用编排、大模型调用、多轮对话，知识系统仅通过 MCP 协议暴露知识查询/写入接口。
+### GET /api/brain/pages
 
-### 3.2 知识查询接口
+**功能**：合并项目私有库与共享库（私有优先去重）列出页面。
 
-| 项目 | 内容 |
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| category | query | 否 | 分类过滤；缺省全部四类 |
+| limit | query | 否 | 每类上限，默认 100 |
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/brain/pages?category=quality-rules&project=default"
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": [ { "id": "a1b2c3", "title": "空指针防护", "category": "quality-rules", "filename": "a1b2c3.md", "repo": "brain", "preview": "..." } ]
+}
+```
+
+**注**：`repo` 标识来自私有库(brain)还是共享库(_shared)。
+
+### GET /api/brain/pages/:category/:id
+
+**功能**：按分类与 ID 读取某个知识页面完整 Markdown 内容。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| category | path | 是 | 分类 |
+| id | path | 是 | 页面 ID（不含 .md） |
+
+**请求示例**：
+
+```bash
+curl http://localhost:3000/api/brain/pages/quality-rules/a1b2c3
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "content": "# 空指针防护\n...", "repo": "brain" } }
+```
+
+**注**：`id` 不含扩展名。
+
+### PUT /api/brain/pages/:category/:id
+
+**功能**：人工修改已发布知识页面的正文，写回其原所在仓库（私有优先于共享）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| category | path | 是 | 分类（须为合法分类） |
+| id | path | 是 | 页面 ID（不含 .md） |
+| content | body | 是 | 新 Markdown 正文 |
+| project | body | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl -X PUT http://localhost:3000/api/brain/pages/quality-rules/a1b2c3 \
+  -H "Content-Type: application/json" -d '{"content":"# 空指针防护\n修订后的内容..."}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "category": "quality-rules", "id": "a1b2c3", "repo": "brain", "size": 128 } }
+```
+
+**注**：写回原仓库，repo 不变；标题由正文首个 `# 标题` 自动派生；记录审计日志（action=edit）。
+
+### POST /api/brain/pages/:category/:id/propose-edit
+
+**功能**：人工编辑优化闭环（设计"链路 3a"）。人工修改已发布页面时**不直接写盘**，而是生成两条草稿：A. 知识条目修改草稿（type=knowledge_edit，确认入库后写回原仓库页面）；B. 质量规则草稿（type=quality_rule，由 old/new 对比自动提炼，进草稿箱待确认）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| category | path | 是 | 分类（须为合法分类） |
+| id | path | 是 | 页面 ID（不含 .md） |
+| content | body | 是 | 新 Markdown 正文 |
+| repo | body | 否 | 原仓库标识（brain/_shared），缺省按原文件所在仓库 |
+| project | body | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/brain/pages/quality-rules/a1b2c3/propose-edit \
+  -H "Content-Type: application/json" -d '{"content":"# 空指针防护\n修订后的内容..."}'
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "editDraftId": "e1f2",
+    "ruleDraftId": "r3s4",
+    "note": "已生成编辑草稿与质量规则草稿，请在草稿箱确认入库。"
+  }
+}
+```
+
+**注**：不直接写盘；质量规则优先 AI 提炼，失败回退确定性 diff。两条草稿需在草稿箱分别确认入库。
+
+### GET /api/brain/private-pages
+
+**功能**：仅列出当前项目私有知识库页面（不含共享库），供筛选晋升。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/brain/private-pages?project=default"
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": { "project": "default", "pages": [ { "category": "quality-rules", "id": "a1b2c3", "path": "quality-rules/a1b2c3.md", "title": "空指针防护", "size": 1024, "mtime": "2026-07-22T08:00:00" } ] }
+}
+```
+
+**注**：用于"晋升私有知识到共享库"弹窗。
+
+### POST /api/brain/promote
+
+**功能**：将项目私有页面复制/移动到共享知识库 `brains/_shared`，对所有项目可见。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | body | 否 | 项目隔离，默认 default |
+| pagePath | body | 是 | 页面路径，格式 `<分类>/<文件名.md>` |
+| mode | body | 否 | copy（默认，保留私有）/ move（移除私有） |
+
+**请求示例**：
+
+```bash
+curl -X POST http://localhost:3000/api/brain/promote \
+  -H "Content-Type: application/json" -d '{"pagePath":"quality-rules/a1b2c3.md","mode":"copy"}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "project": "default", "pagePath": "quality-rules/a1b2c3.md", "mode": "copy", "dest": "brains/_shared/quality-rules/a1b2c3.md" } }
+```
+
+**注**：非法路径/分类会被 400 拒绝；含 `..` 视为非法。
+
+### DELETE /api/brain/pages/:category/:id
+
+**功能**：删除知识库某页面（同时匹配私有/共享库）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| category | path | 是 | 分类（须为合法分类） |
+| id | path | 是 | 页面 ID（不含 .md） |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:3000/api/brain/pages/quality-rules/a1b2c3
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "category": "quality-rules", "id": "a1b2c3", "path": "brain/quality-rules/a1b2c3.md" } }
+```
+
+**注**：非法分类/文件名会被拒绝；记录审计日志。
+
+### DELETE /api/brain/pages
+
+**功能**：按 items 批量删除知识库页面。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| items | body | 是 | 数组，元素 `{ category, id }` |
+
+**请求示例**：
+
+```bash
+curl -X DELETE http://localhost:3000/api/brain/pages \
+  -H "Content-Type: application/json" -d '{"items":[{"category":"quality-rules","id":"a1b2c3"}]}'
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "deleted": [ { "category": "quality-rules", "id": "a1b2c3" } ], "count": 1 } }
+```
+
+**注**：`items` 为空会被 400 拒绝。
+
+---
+
+## 11. 图谱数据
+
+解析 project-wiki 的 WikiLinks 与代码调用关系，导出图谱节点与边。
+
+### GET /api/graph-data
+
+**功能**：返回知识/代码实体节点与关系边，供前端力导向图渲染。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+| mode | query | 否 | `api`（默认，API 调用依赖图谱）或 `entity`（项目实体图谱） |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/graph-data?project=default"          # API 依赖图谱
+curl "http://localhost:3000/api/graph-data?mode=entity&project=default"  # 项目实体图谱
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "nodes": [ { "id": "m:auth", "label": "认证模块", "type": "module", "repo": "brain" } ],
+    "edges": [ { "source": "m:auth", "target": "m:login", "type": "wiki-link" } ]
+  }
+}
+```
+
+**注**：project-wiki 不存在时返回空节点/边。
+
+---
+
+## 11.5 AI 平台对接（AI Adapter）
+
+知识库侧 AI 平台适配器，**对齐 testcase-gen-frontend 系统设置**设计：codebuddy / openai / none 三通道，配置持久化于 `data/ai_config.json`（env 种子 + 文件热更新）。`generate-quality-rule` 服务于设计“链路 3a 人工编辑优化”——由人工编辑前后内容生成质量规则：优先调用 AI 提炼，未配置 AI 或调用失败时回退确定性 diff 拼装（difflib，稳定可离线）。
+
+### GET /api/ai-settings
+
+**功能**：读取 AI 平台对接配置。
+
+**响应示例**：
+```json
+{ "success": true, "data": { "ai": { "provider": "none", "useCustomModel": false, "endpoint": "", "apiKey": "", "model": "claude-sonnet-4" }, "gbrain": { "provider": "openai", "endpoint": "", "apiKey": "", "model": "gpt-4o-mini" } } }
+```
+
+**注**：除 AI 平台对接 `ai` 段外，新增 `gbrain` 段（GBrain 大模型），用于 Wiki 摘要、实体抽取、目录生成等智能能力；`gbrain.provider` = `openai` | `none`。
+
+### PUT /api/ai-settings
+
+**功能**：更新 AI 平台配置与 GBrain 大模型配置并持久化。`provider` = `openai` | `codebuddy` | `none`。
+
+**请求体**：
+```json
+{ "ai": { "provider": "openai", "endpoint": "https://<host>/v1/chat/completions", "apiKey": "<token>", "model": "claude-sonnet-4", "useCustomModel": false }, "gbrain": { "provider": "openai", "endpoint": "https://<gbrain-host>/v1", "apiKey": "<token>", "model": "gpt-4o-mini" } }
+```
+
+### POST /api/generate-quality-rule
+
+**功能**：由人工编辑前后内容生成质量规则（Markdown）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| title | body | 否 | 条目标题 |
+| old | body | 是 | 修改前正文 |
+| new | body | 是 | 修改后正文 |
+
+**请求示例**：
+```bash
+curl -X POST http://localhost:3000/api/generate-quality-rule \
+  -H "Content-Type: application/json" \
+  -d '{"title":"登录校验","old":"旧规则","new":"新规则"}'
+```
+
+**响应示例**：
+```json
+{ "success": true, "data": { "source": "ai", "content": "# 质量规则：登录校验\n\n- ..." } }
+```
+`source` 取值：`ai`（AI 提炼）或 `deterministic`（确定性 diff 回退）。
+
+---
+
+## 12. MCP 服务（已实现）
+
+面向 AI Agent 的 Model Context Protocol 接口。**已实现**为 stdio 传输的 MCP 服务（见 `mcp_connector/`，基于 FastMCP），供 CodeBuddy 与 testcase-gen-frontend（Agent SDK）接入。设计上 `gbrain serve` 的查询 :8100 / 写入 :8101 两个实例，已落地为物理隔离的 `knowledgeos-query`（只读）与 `knowledgeos-write`（写入）两个 stdio 服务；连接器是 REST API（`api/server.js`）的薄封装，所有知识逻辑仍在 REST 端实现（含质量门控与冲突检测）。
+
+**工具映射（设计命名 → 实现工具）**：
+- 查询服务 `knowledgeos-query`：检索 `search_knowledge`(POST /api/search)、生成 `generate_test_cases`(POST /api/generate-cases)、`case-generator`≈`search_knowledge`+`generate_test_cases`、`tfidf-code-slicer`⇒`tfidf_code_slicer`、`api-graph-builder`⇒`get_knowledge_graph`(GET /api/graph-data)；另含 `list_knowledge_pages`/`get_knowledge_page`/`get_stats`/`list_projects`/`list_drafts`/`get_draft`/`list_conflicts`。
+- 写入服务 `knowledgeos-write`：`case-validator`⇒`validate_draft`(POST /api/quality-gate/check)、`conflict-detector`⇒`detect_conflicts`(POST /api/conflicts/detect)、`quality-gate`⇒`quality_gate`、`single-commit`⇒`single_commit`(POST /api/drafts/:id/commit)、`batch-commit`⇒`batch_commit`(POST /api/drafts/batch-commit)；另含 `add_draft`/`update_draft`/`delete_draft`/`edit_knowledge_page`/`resolve_conflict`/`upload_source`/`promote_page`。
+
+**接入（CodeBuddy）**：项目根 `.codebuddy/mcp.json` 已配置两个 stdio 服务，刷新即可加载；REST 基址用环境变量 `KB_API_BASE` 指定（默认 `http://localhost:3000`）。**接入（testcase-gen-frontend / Agent SDK）**：在该应用 `mcpServers` 配置加入同样的 stdio 服务（指向 `mcp_connector/query_server.py` 与 `write_server.py`）。完整工具清单与配置示例见 `mcp_connector/README.md`。
+
+### MCP 查询服务 :8100
+
+**功能**：只读查询通道。暴露检索/切片/图谱类工具，权限为 Brain 只读 + 草稿可写（缓冲层）。配置 `agents/generator.json`。
+
+| 工具 | 说明 |
 |------|------|
-| 配置文件 | `agents/generator.json` |
-| 端口 | 8100 |
-| 权限 | Brain 只读、缓存可写草稿、禁止写入正式库 |
-| 暴露工具 | `case-generator`、`tfidf-code-slicer`、`api-graph-builder` |
+| case-generator | 根据 query 生成测试用例（只读知识库） |
+| tfidf-code-slicer | TF-IDF 代码切片（只读代码库） |
+| api-graph-builder | 构建 API 调用图谱（只读） |
 
-**调用方式**：
+**启动方式**：
 
 ```bash
 gbrain serve --port 8100 --config agents/generator.json
 ```
 
-**主要能力**：
-- RRF 混合搜索
-- 知识图谱查询
-- Brain 页面读取
-- 草稿写入（仅 drafts 表）
+**MCP 客户端调用（JSON-RPC 2.0 over stdio/HTTP）**：
 
-### 3.3 知识写入接口
+```json
+{
+  "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+  "params": { "name": "case-generator", "arguments": { "query": "支付流程", "project": "default" } }
+}
+```
 
-| 项目 | 内容 |
+**响应示例**：
+
+```json
+{
+  "jsonrpc": "2.0", "id": 1,
+  "result": { "content": [ { "type": "text", "text": "生成的测试用例草稿已写入缓冲层" } ] }
+}
+```
+
+**注**：工具清单与端口以 `agents/generator.json` 为准。
+
+### MCP 写入服务 :8101
+
+**功能**：写入库通道。暴露校验/提交类工具，权限为 Brain 只读 + 缓存读写 + 可写正式库。配置 `agents/validator.json`。
+
+| 工具 | 说明 |
 |------|------|
-| 配置文件 | `agents/validator.json` |
-| 端口 | 8101 |
-| 权限 | Brain 只读、缓存读写、可写入正式库 |
-| 暴露工具 | `case-validator`、`conflict-detector`、`batch-commit`、`single-commit`、`quality-gate` |
+| case-validator | 校验测试用例质量 |
+| conflict-detector | 检测与既有知识冲突 |
+| batch-commit | 批量入库 |
+| single-commit | 单条入库 |
+| quality-gate | 质量门控评估 |
 
-**调用方式**：
+**启动方式**：
 
 ```bash
 gbrain serve --port 8101 --config agents/validator.json
 ```
 
-**主要能力**：
-- 读取待入库草稿
-- 冲突检测
-- 质量门控
-- 批量/单条入库
-- 增量刷新 API 图谱
-
----
-
-## 4. 内部模块接口
-
-### 4.1 注释规范
-
-所有 Python 模块使用 Google Style Docstring 注释：
-
-```python
-def my_function(param_name: str, options: dict = None) -> str:
-    """函数简短描述。
-
-    Args:
-        param_name: 参数说明
-        options: 可选参数说明
-
-    Returns:
-        返回值说明
-
-    Raises:
-        ValueError: 异常说明
-
-    Example:
-        >>> result = my_function('value')
-    """
-    return result
-```
-```
-
-### 4.2 缓冲层模块
-
-#### DraftCache
-
-文件位置：`cache/draft_cache.py`
-
-```typescript
-/**
- * 草稿缓存管理器
- * 负责 drafts 表的增删改查
- */
-export class DraftCache {
-  /**
-   * 创建 DraftCache 实例
-   * @param dbPath SQLite 数据库文件路径
-   */
-  constructor(dbPath: string);
-
-  /**
-   * 添加草稿
-   * @param draft 草稿对象
-   * @returns 新增草稿的 ID
-   */
-  addDraft(draft: DraftInput): string;
-
-  /**
-   * 获取指定状态的草稿列表
-   * @param status 草稿状态
-   * @returns 草稿列表
-   */
-  getDraftsByStatus(status: DraftStatus): Draft[];
-
-  /**
-   * 根据 ID 获取草稿
-   * @param id 草稿 ID
-   * @returns 草稿对象，不存在返回 null
-   */
-  getDraftById(id: string): Draft | null;
-
-  /**
-   * 更新草稿状态
-   * @param id 草稿 ID
-   * @param status 新状态
-   * @returns 是否更新成功
-   */
-  updateDraftStatus(id: string, status: DraftStatus): boolean;
-
-  /**
-   * 清理过期草稿
-   * @param days 过期天数阈值
-   * @returns 清理数量
-   */
-  cleanupStaleDrafts(days: number): number;
-}
-```
-
-#### ConflictQueue
-
-文件位置：`cache/conflict-queue.ts`
-
-```typescript
-/**
- * 冲突队列管理器
- * 负责 conflicts 表的增删改查
- */
-export class ConflictQueue {
-  /**
-   * 创建 ConflictQueue 实例
-   * @param dbPath SQLite 数据库文件路径
-   */
-  constructor(dbPath: string);
-
-  /**
-   * 添加冲突记录
-   * @param conflict 冲突对象
-   * @returns 冲突记录 ID
-   */
-  addConflict(conflict: ConflictInput): string;
-
-  /**
-   * 获取未处理冲突列表
-   * @returns 冲突列表
-   */
-  getPendingConflicts(): Conflict[];
-
-  /**
-   * 处理冲突
-   * @param id 冲突 ID
-   * @param resolution 处理方式：merge / overwrite / discard
-   * @param operator 处理人
-   * @returns 是否处理成功
-   */
-  resolveConflict(id: string, resolution: ConflictResolution, operator: string): boolean;
-}
-```
-
-#### AuditLog
-
-文件位置：`cache/audit-log.ts`
-
-```typescript
-/**
- * 审计日志管理器
- */
-export class AuditLog {
-  /**
-   * 创建 AuditLog 实例
-   * @param dbPath SQLite 数据库文件路径
-   */
-  constructor(dbPath: string);
-
-  /**
-   * 记录操作日志
-   * @param action 操作类型
-   * @param operator 操作者
-   * @param target 操作对象
-   * @param detail 详情 JSON
-   * @returns 日志 ID
-   */
-  log(action: AuditAction, operator: string, target: string, detail: object): string;
-
-  /**
-   * 查询日志
-   * @param filters 过滤条件
-   * @returns 日志列表
-   */
-  query(filters: AuditQueryFilters): AuditEntry[];
-}
-```
-
-### 4.3 Skills 模块
-
-#### conflict-detector
-
-文件位置：`skills/conflict-detector.md`
-
-```typescript
-/**
- * 检测草稿与已有规则的冲突
- * @param drafts 待检测草稿列表
- * @param rules 已有质量规则列表
- * @returns 冲突列表
- */
-function detectConflicts(drafts: Draft[], rules: BrainPage[]): Conflict[];
-```
-
-#### quality-gate
-
-文件位置：`skills/quality-gate.md`
-
-```typescript
-/**
- * 对草稿进行质量评分
- * @param draft 待评分草稿
- * @returns 评分结果与通过状态
- */
-function checkQuality(draft: Draft): QualityResult;
-```
-
-#### batch-commit
-
-文件位置：`skills/batch-commit.md`
-
-```typescript
-/**
- * 批量确认入库
- * @param draftIds 草稿 ID 列表
- * @returns 入库结果
- * @throws ConflictUnresolvedError 存在未处理冲突
- * @throws QualityCheckFailedError 质量评分未通过
- */
-function batchCommit(draftIds: string[]): CommitResult;
-```
-
-#### single-commit
-
-文件位置：`skills/single-commit.md`
-
-```typescript
-/**
- * 单条确认入库
- * @param draftId 草稿 ID
- * @returns 入库结果
- */
-function singleCommit(draftId: string): CommitResult;
-```
-
-#### tfidf-code-slicer
-
-文件位置：`skills/tfidf-code-slicer.md`
-
-```typescript
-/**
- * 调用 Python 脚本解析代码文件
- * @param codePath 代码文件路径
- * @returns 接口与依赖关系 JSON
- */
-function sliceCode(codePath: string): CodeSliceResult;
-```
-
-#### api-graph-builder
-
-文件位置：`skills/api-graph-builder.md`
-
-```typescript
-/**
- * 根据代码切片结果构建/更新 API 依赖图谱
- * @param sliceResult tfidf-code-slicer 输出
- * @returns 图谱更新结果
- */
-function buildApiGraph(sliceResult: CodeSliceResult): GraphUpdateResult;
-```
-
-### 4.4 工具函数
-
-#### MaaS 降级容灾
-
-文件位置：`config/maas-resilience.ts`
-
-```typescript
-/**
- * 带降级策略的嵌入调用
- * @param text 待嵌入文本
- * @param options 重试/超时/熔断配置
- * @returns 向量结果，失败时返回 null
- */
-export async function embedWithFallback(
-  text: string,
-  options?: EmbedOptions
-): Promise<number[] | null>;
-```
-
-#### 兼容校验
-
-文件位置：`scripts/compat_check.py`
-
-```typescript
-/**
- * 启动前兼容性校验
- * @returns 校验结果，失败时抛出 CompatCheckError
- */
-export function runCompatCheck(): CompatCheckResult;
-```
-
-#### 异常告警
-
-文件位置：`scripts/alert_monitor.py`
-
-```typescript
-/**
- * 运行异常监控检查
- * @returns 告警列表
- */
-export function runAlertMonitor(): Alert[];
-```
-
----
-
-## 5. Python 子进程接口
-
-### 5.1 tfidf-code-slicer
-
-**调用方式**：通过 Node.js `child_process` 调用 Python 脚本
-
-**输入**：代码文件路径
-
-**输出 JSON 结构**：
+**MCP 客户端调用**：
 
 ```json
 {
-  "interfaces": [
-    {
-      "id": "userService.login",
-      "module": "UserService",
-      "params": ["username", "password"],
-      "returns": "Token"
-    }
-  ],
-  "dependencies": [
-    {
-      "from": "userService.login",
-      "to": "authService.validate",
-      "type": "precondition"
-    }
-  ]
+  "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+  "params": { "name": "batch-commit", "arguments": { "project": "default", "ids": ["a1b2c3"] } }
 }
 ```
 
+**响应示例**：
+
+```json
+{
+  "jsonrpc": "2.0", "id": 2,
+  "result": { "content": [ { "type": "text", "text": "committed: 1, conflicts: 0" } ] }
+}
+```
+
+**注**：写入服务对应 REST 的 `/api/drafts/batch-commit` 等能力，权限更严格。
+
 ---
 
-## 6. 版本历史
+## 13. 版本历史
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| v1.0.0 | 2026-07-16 | 初始版本，包含 V1.0 全部接口定义 |
+| v1.0.0 | 2026-07-16 | 初始版本（设计文档，含部分未实现端点） |
+| v1.0.1 | 2026-07-22 | 依据 `api/server.js` 真实路由重写，与网页"接口文档"页（#apidocs）同步；移除不存在端点（/api/confirm、/api/brain、/api/dashboard、/api/webhook/* 等），新增 projects/drafts 增删改、conflicts 批量与 detect、quality-gate、audit-log、stats、brain 读写与 promote、graph-data、generate-cases 等真实接口，并标注 MCP 规划状态 |

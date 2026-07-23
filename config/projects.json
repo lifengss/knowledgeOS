@@ -1,7 +1,12 @@
 {
   "defaultProject": "default",
   "sharedBrain": "brains/_shared",
-  "categories": ["quality-rules", "defect-experience", "project-wiki", "test-cases"],
+  "categories": [
+    "quality-rules",
+    "defect-experience",
+    "project-wiki",
+    "test-cases"
+  ],
   "projects": [
     {
       "id": "default",
@@ -14,6 +19,12 @@
       "name": "示例项目",
       "brainPath": "brains/demo",
       "description": "演示多项目隔离/共享的示例项目（初始为空）"
+    },
+    {
+      "id": "testCaseGenerator",
+      "name": "AI 测试用例生成系统",
+      "description": "自动化测试用例生成前端业务系统的知识库：存放该系统自身搭建过程中生成的测试用例与自动化测试脚本",
+      "brainPath": "brains/testCaseGenerator"
     }
   ]
 }
