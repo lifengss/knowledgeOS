@@ -19,16 +19,39 @@ const iconv = require('iconv-lite');
 function readTextFile(filePath) {
   const buf = fs.readFileSync(filePath);
   const utf8 = buf.toString('utf-8');
-  // 启发式：若 UTF-8 解码后出现典型 GBK 误读乱码（Ã 系列）或替换符，则尝试 GBK 解码
-  const looksLikeMojibake = /\u00C3[\u0080-\u00BF]/.test(utf8) || utf8.includes('\uFFFD');
-  if (looksLikeMojibake) {
+  // 非法 UTF-8（含替换符）-> 多半是 GBK 等 ANSI 编码，整体按 GBK 解码
+  if (utf8.includes('\uFFFD')) {
     const gbk = iconv.decode(buf, 'gbk');
-    // GBK 解码后若包含正常中文且无乱码特征，则采用 GBK
-    if (/[\u4e00-\u9fa5]/.test(gbk) && !/\u00C3[\u0080-\u00BF]/.test(gbk)) {
-      return gbk;
-    }
+    if (/[\u4e00-\u9fa5]/.test(gbk)) return gbk;
+    return utf8;
+  }
+  // 合法 UTF-8 但夹杂“二次编码”乱码片段（如中文文件名被多层 UTF-8 误编码）-> 仅局部还原，
+  // 避免对整个文件做 Latin-1 反向转换而破坏原本正确的中文内容。
+  if (/[\u00C3\u00C2][\u0080-\u00BF]/.test(utf8)) {
+    return repairMixedMojibake(utf8);
   }
   return utf8;
+}
+
+// 对单个乱码片段尝试 1~3 层 Latin-1 反向还原，取中文字符数最多的一层（兼容单层 / 双层 mojibake）
+function reverseMojibakeRun(run) {
+  let best = run, bestCjk = 0, cur = run;
+  for (let i = 0; i < 4; i++) {
+    const c = (cur.match(/[\u4e00-\u9fa5]/g) || []).length;
+    if (c > bestCjk) { best = cur; bestCjk = c; }
+    const rev = Buffer.from(cur, 'latin1').toString('utf-8');
+    if (rev === cur) break;
+    cur = rev;
+  }
+  return best;
+}
+
+// 仅处理含 Latin-1 引导字节（\u00C2/\u00C3）的连续片段，避免误伤正常标点（如间隔号 ·）
+function repairMixedMojibake(s) {
+  return s.replace(/([\u0080-\u00BF\u00C2\u00C3]+)/g, (run) => {
+    if (!/[\u00C2\u00C3]/.test(run)) return run;
+    return reverseMojibakeRun(run);
+  });
 }
 
 // 代理支持：Node 全局 fetch(undici) 默认不读取 HTTP(S)_PROXY。若后端机器需经代理才能访问外网
@@ -594,7 +617,9 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
       const fileBase = req.file ? path.basename(req.file.originalname, path.extname(req.file.originalname)) : '';
       const bodyName = req.body.filename ? String(req.body.filename).replace(/\.[^.]+$/, '') : '';
       const sourceFile = req.body.filename || (req.file ? req.file.originalname : '');
-      const rawName = note || bodyName || fileBase || type;
+      // 中文文件名经 multipart 上传时可能被多层 UTF-8 误编码成 mojibake，入库前先局部还原
+      const rawName = repairMixedMojibake(note || bodyName || fileBase || type);
+      const safeSourceFile = repairMixedMojibake(sourceFile);
       const base = rawName.replace(/[^\w\u4e00-\u9fa5-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || type;
       // 唯一化 slug：同名文档重复上传不再相互覆盖，依次追加 -2 / -3 …
       let slug = `${prefix}-${base}`;
@@ -604,7 +629,7 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
         dup++;
       }
       const rawRel = `raw/${slug}-raw.md`;
-      const fm = `---\nuploadType: ${type}\ntitle: ${rawName}\nsourceFile: ${sourceFile}\nraw: ${rawRel}\nuploadedAt: ${new Date().toISOString()}\n---\n# ${rawName}\n\n${text}`;
+      const fm = `---\nuploadType: ${type}\ntitle: ${rawName}\nsourceFile: ${safeSourceFile}\nraw: ${rawRel}\nuploadedAt: ${new Date().toISOString()}\n---\n# ${rawName}\n\n${text}`;
       fs.writeFileSync(path.join(catDir, slug + '.md'), fm, 'utf-8');
       // Raw 溯源区：独立存放原始文档，可在项目 Wiki 中溯源查看
       fs.mkdirSync(path.join(catDir, 'raw'), { recursive: true });
@@ -974,6 +999,110 @@ app.get('/api/wiki-modules', async (req, res) => {
   }
 });
 
+// GET /api/wiki/module-entities - 按功能模块精准召回 GBrain 抽取实体及其图谱关系
+// 业务端「按功能模块」生成时，将选中模块关联的实体（定义/属性/关系）作为高优上下文，
+// 而非依赖全库关键词检索的噪声召回。绑定锚点 = 实体正文的 sourceSection（PRD 章节）与模块标题重叠。
+app.get('/api/wiki/module-entities', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainDirs = brainDirsFor(pid);
+    let modules = [];
+    try { modules = JSON.parse(req.query.modules || '[]'); } catch (_) {}
+    if (!Array.isArray(modules) || !modules.length) {
+      return res.json({ success: true, data: { entities: [], related: [] } });
+    }
+
+    const strip = (v) => String(v == null ? '' : v).trim().replace(/^"+|"+$/g, '');
+    const norm = (s) => String(s || '').replace(/^\d+([.\d]*)\s*/, '').replace(/\s+/g, '');
+
+    // 1) 收集全部 GBrain 实体页（排除 entity-index-* 索引页）
+    const ents = [];
+    const byName = new Map();
+    for (const bdir of brainDirs) {
+      const pw = path.join(bdir, 'project-wiki');
+      if (!fs.existsSync(pw)) continue;
+      for (const file of fs.readdirSync(pw).filter(f => f.startsWith('entity-') && f.endsWith('.md') && !f.startsWith('entity-index-'))) {
+        const content = readTextFile(path.join(pw, file));
+        const fm = parseFrontmatter(content) || {};
+        if (fm.type !== 'entity') continue;
+        const id = file.replace(/\.md$/, '');
+        const titleM = content.match(/^#\s+(.+)$/m);
+        const name = strip(fm.title) || (titleM ? titleM[1].trim() : id);
+        const secM = content.match(/>\s*来源文档：[^\n]*?（(.+?)）/) || content.match(/sourceSection:\s*(.+)/);
+        const sourceSection = secM ? secM[1].trim() : '';
+        const defM = content.match(/##\s*定义\s*\n([\s\S]*?)(?=\n##\s|$)/);
+        const definition = defM ? defM[1].replace(/^[-*]\s*/gm, '').trim().slice(0, 240) : '';
+        const relM = content.match(/##\s*关联关系\s*\n([\s\S]*?)(?=\n##\s|$)/);
+        const relations = [];
+        if (relM) {
+          for (const line of relM[1].split('\n')) {
+            const m = line.match(/^[-*]\s*(.+?)\s*[（(](.+?)[）)]/);
+            if (m) relations.push({ target: strip(m[1]), type: strip(m[2]) });
+          }
+        }
+        const e = { id, name, type: strip(fm.entityType) || '概念', source: strip(fm.source) || '', sourceSection, definition, relations };
+        ents.push(e);
+        byName.set(name, e);
+      }
+    }
+    if (!ents.length) return res.json({ success: true, data: { entities: [], related: [] } });
+
+    // 2) CJK 字符重叠打分（处理模块标题与 sourceSection 的字面差异）
+    const cjkSet = (s) => new Set([...String(s || '')].filter(c => /[一-鿿]/.test(c)));
+    const overlap = (a, b) => {
+      const sa = cjkSet(a), sb = cjkSet(b);
+      if (!sa.size || !sb.size) return 0;
+      let n = 0; sb.forEach(c => { if (sa.has(c)) n++; });
+      return n / Math.max(sa.size, sb.size);
+    };
+    // 抽取标题/章节的「数字编号路径」（如 "2.2.2 AI知识加工层" → "2.2.2"），
+    // 用于父章节(模块 2.2) → 子节实体(2.2.2) 的前缀匹配（功能模块是 H2/H3，实体 sourceSection 多为 H4 子节）
+    const secNum = (s) => { const m = String(s || '').match(/^\s*(\d+(?:\.\d+)*)/); return m ? m[1] : ''; };
+    const scoreOf = (mod) => (e) => {
+      const nm = norm(mod), ns = norm(e.sourceSection), nn = norm(e.name), nd = norm(e.definition || '');
+      let s = 0;
+      const mn = secNum(mod), sn = secNum(e.sourceSection);
+      if (mn && sn && (sn === mn || sn.startsWith(mn + '.') || mn.startsWith(sn + '.'))) s = Math.max(s, 90);
+      if (ns && ns === nm) s = 100;
+      else if (ns && (ns.includes(nm) || nm.includes(ns))) s = Math.max(s, 80);
+      if (nn && (nn.includes(nm) || nm.includes(nn))) s = Math.max(s, 70);
+      s = Math.max(s, overlap(nm, nn + nd) * 60);
+      if (e.relations.some(r => { const rt = norm(r.target); return rt && (rt.includes(nm) || nm.includes(rt)); })) s = Math.max(s, 40);
+      return s;
+    };
+
+    // 3) 每个模块取 top 实体（score>=20，最多 6 个）
+    const merged = new Map();
+    for (const mod of modules) {
+      ents.map(e => ({ e, s: scoreOf(mod)(e) }))
+        .filter(x => x.s >= 20)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 6)
+        .forEach(({ e }) => merged.set(e.id, e));
+    }
+
+    // 4) 1 跳图谱扩展：把选中实体的关系对象也纳入（知识图谱邻域）
+    const related = [];
+    const relatedSeen = new Set();
+    for (const e of merged.values()) {
+      for (const r of e.relations) {
+        const t = byName.get(r.target) || [...byName.values()].find(x => {
+          const xn = norm(x.name), rn = norm(r.target);
+          return xn && rn && (xn.includes(rn) || rn.includes(xn));
+        });
+        if (t && !merged.has(t.id) && !relatedSeen.has(t.id)) {
+          relatedSeen.add(t.id);
+          related.push({ ...t, via: e.name, relType: r.type });
+        }
+      }
+    }
+
+    res.json({ success: true, data: { entities: [...merged.values()], related } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ---------------------------------------------------------------
 // 模块 7: GBrain 页面管理
 // ---------------------------------------------------------------
@@ -994,7 +1123,7 @@ app.get('/api/brain/raw', async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ success: false, error: 'not found' });
     }
-    const raw = await fs.promises.readFile(filePath, 'utf8');
+    const raw = readTextFile(filePath);
     res.json({ success: true, data: { title: file, content: raw, sourceFile: '' } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
