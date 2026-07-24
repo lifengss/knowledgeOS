@@ -421,13 +421,34 @@ def generate(brain_dir, use_ai=True, sources=None):
                     data.setdefault("meta", {})["generatedFrom"] = src_labels
 
     if data is None:
-        # 回退确定性骨架：端点来自全量 API 文档扫描（sources 模式素材中不含端点时的兜底）
-        data = scaffold_from_api_doc(api_main, arch_main)
-        data["meta"]["generatedFrom"] = src_labels
         source = "deterministic"
-        if sources and api_main is None:
-            warns_ = data.setdefault("_notice", [])
-            warns_.append("所选素材未包含 API 文档，已用空骨架回退")
+        if sources:
+            # 回退也仅基于所选素材：拼接为临时文档抽取端点（贴合「仅根据选定内容生成」）
+            tmp = os.path.join(brain_dir, "project-wiki", "_bg_sources_tmp.md")
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    for s in sources:
+                        if isinstance(s, dict):
+                            title = s.get("title") or s.get("id") or "素材"
+                            content = s.get("content") or ""
+                        else:
+                            title = "素材"
+                            content = str(s)
+                        f.write("## " + title + "\n\n" + content + "\n\n")
+                data = scaffold_from_api_doc(tmp, tmp)
+            except Exception:
+                data = scaffold_from_api_doc(api_main, arch_main)
+            finally:
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+        else:
+            data = scaffold_from_api_doc(api_main, arch_main)
+        data["meta"]["generatedFrom"] = src_labels
+        if sources and len(data.get("nodes", [])) == 0:
+            data.setdefault("_notice", []).append(
+                "所选素材未识别到 API 端点(method|path 格式)，已回退空骨架；建议开启 AI 业务分析或提供含接口定义的素材")
 
     errs, warns = validate(data)
     md = json_to_markdown(data)
