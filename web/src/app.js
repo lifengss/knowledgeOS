@@ -594,6 +594,11 @@ const pageTemplates = {
             <option value="">— 选择可测试场景高亮 —</option>
           </select>
           <input id="bizflow-search" class="input" style="max-width:220px;" placeholder="搜索步骤 id / 名称…" oninput="bizflowFilter(this.value)">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
+            <input type="checkbox" id="bizflow-ai" checked> AI 业务分析
+          </label>
+          <button class="btn btn-primary btn-sm" onclick="bizflowRegenerate()">重新生成</button>
+          <button class="btn btn-accent btn-sm" onclick="bizflowOpenSourcePicker()">选择素材生成</button>
           <button class="btn btn-secondary btn-sm" onclick="bizflowReset()">重置视图</button>
           <span id="bizflow-status" class="muted" style="font-size:12px;"></span>
         </div>
@@ -2541,7 +2546,7 @@ async function tutorialLoadChapter(file) {
     const res = await fetch('/tutorial/chapters/' + encodeURIComponent(file) + '?t=' + Date.now());
     if (!res.ok) throw new Error('章节加载失败 (' + res.status + ')');
     const md = await res.text();
-    c.innerHTML = '<article class="tut-article">' + renderTutorialMarkdown(md) + '</article>';
+    c.innerHTML = renderTutorialMarkdown(md);
     document.querySelectorAll('.tut-ch').forEach(el => el.classList.toggle('active', el.dataset.file === file));
     c.scrollTop = 0;
   } catch (e) {
@@ -2552,7 +2557,7 @@ async function tutorialLoadChapter(file) {
 function renderTutorialMarkdown(md) {
   const toc = buildToc(md);
   const body = renderMarkdown(md);
-  return toc + '<div class="tut-body">' + body + '</div>';
+  return '<div class="tut-body-wrap"><article class="tut-article">' + body + '</article>' + toc + '</div>';
 }
 
 function slugify(s) {
@@ -3656,6 +3661,90 @@ function bizflowFilter(q) {
   if (!bizflow) return;
   bizflow.filter = q.trim() || null;
   updateBizflow();
+}
+
+async function bizflowRegenerate() {
+  const st = document.getElementById('bizflow-status');
+  const aiEl = document.getElementById('bizflow-ai');
+  const useAi = aiEl ? aiEl.checked : true;
+  if (st) st.textContent = '生成中…';
+  try {
+    const res = await apiPost('/business-graph', { ai: useAi });
+    const d = res && res.data ? res.data : {};
+    if (st) st.textContent = '已生成（源=' + (d.source || '?') + '，' +
+      (d.nodes || 0) + ' 节点 / ' + (d.edges || 0) + ' 边 / ' + (d.flows || 0) + ' 场景）';
+    const g = await apiGet('/business-graph');
+    if (g && g.data) {
+      bizflow = buildBizflowModel(g.data);
+      renderBizflow();
+      const sel = document.getElementById('bizflow-scenario');
+      if (sel) sel.innerHTML = '<option value="">— 选择可测试场景高亮 —</option>' +
+        bizflow.flows.map(f => `<option value="${f.id}">${escapeHtml(f.id)} · ${escapeHtml(f.name)}</option>`).join('');
+    }
+  } catch (e) {
+    if (st) st.textContent = '生成失败：' + (e && e.message ? e.message : e);
+  }
+}
+
+// 选择素材生成：弹框列出项目 Wiki 页面，勾选后仅基于所选素材生成业务图谱
+function bizflowOpenSourcePicker() {
+  apiGet('/brain/pages?category=project-wiki&limit=1000').then(r => {
+    const list = (r && r.data) ? r.data : [];
+    if (!list.length) {
+      alert('当前项目 Wiki 暂无页面，请先在「项目 Wiki」中录入架构 / PRD / API 文档。');
+      return;
+    }
+    const items = list.map(p =>
+      `<label class="biz-pick-item"><input type="checkbox" class="biz-pick-cb" value="${encodeURIComponent(p.id)}"/> <span>${escapeHtml(p.title || p.id)}</span></label>`
+    ).join('');
+    const html =
+      `<div class="modal-mask" id="bizflow-picker-mask">
+         <div class="modal-card">
+           <div class="modal-head">选择生成素材（项目 Wiki）<button class="modal-close" onclick="bizflowClosePicker()">×</button></div>
+           <div class="modal-body"><div class="biz-pick-list">${items}</div></div>
+           <div class="modal-foot">
+             <label class="bizflow-ai-label"><input type="checkbox" id="bizflow-picker-ai" checked/> AI 业务分析</label>
+             <button class="btn btn-primary btn-sm" onclick="bizflowGenerateFromSources()">用所选素材生成</button>
+             <button class="btn btn-secondary btn-sm" onclick="bizflowClosePicker()">取消</button>
+           </div>
+         </div>
+       </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+  }).catch(e => {
+    alert('加载 Wiki 页面失败：' + (e && e.message ? e.message : e));
+  });
+}
+
+function bizflowClosePicker() {
+  const m = document.getElementById('bizflow-picker-mask');
+  if (m) m.remove();
+}
+
+async function bizflowGenerateFromSources() {
+  const mask = document.getElementById('bizflow-picker-mask');
+  if (!mask) return;
+  const cbs = Array.prototype.slice.call(mask.querySelectorAll('.biz-pick-cb:checked'));
+  if (!cbs.length) { alert('请至少选择一个 Wiki 页面作为素材。'); return; }
+  const ids = cbs.map(cb => decodeURIComponent(cb.value));
+  const useAi = mask.querySelector('#bizflow-picker-ai').checked;
+  const st = document.getElementById('bizflow-status');
+  if (st) st.textContent = '读取素材中…';
+  try {
+    const pages = await Promise.all(ids.map(id =>
+      apiGet('/brain/pages/project-wiki/' + encodeURIComponent(id))
+        .then(r => ({ id, title: (r && r.data && r.data.title) || id, content: (r && r.data && r.data.content) || '' }))
+        .catch(() => ({ id, title: id, content: '' }))
+    ));
+    const sources = pages.filter(p => p.content && p.content.trim());
+    if (!sources.length) { alert('所选页面无可用内容。'); return; }
+    if (st) st.textContent = '生成中（' + sources.length + ' 个素材）…';
+    await apiPost('/business-graph', { ai: useAi, sources });
+    bizflowClosePicker();
+    await bizflowRender();
+    if (st) st.textContent = '已基于 ' + sources.length + ' 个素材生成';
+  } catch (e) {
+    if (st) st.textContent = '生成失败：' + (e && e.message ? e.message : e);
+  }
 }
 
 function bizflowReset() {

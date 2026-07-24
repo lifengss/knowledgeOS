@@ -721,6 +721,22 @@ curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "no
   }
 }`,
           notes: 'business-flows.json 未入库（project-wiki 下无该文件）时 data 为 null。'
+        },
+        {
+          method: 'POST',
+          path: '/api/business-graph',
+          summary: '从文档重新生成业务图谱（AI 优先，确定性兜底）',
+          description: '从 project-wiki 的架构/PRD + API 文档重新生成 business-flows.json 并入库。body.ai=false 强制仅用确定性骨架。返回 { source, valid, nodes, edges, flows, path }。',
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' },
+            { name: 'ai', in: 'body', required: false, desc: 'true(默认)启用 AI 分析；false 仅确定性骨架' },
+            { name: 'sources', in: 'body', required: false, desc: '素材模式：[{id,title,content}]，仅基于所选项目 Wiki 页面生成；缺省全量扫描' }
+          ],
+          requestExample: 'curl -X POST "{BASE}/business-graph?project=default" -H "Content-Type: application/json" -d \'{"ai": false, "sources": [{"id":"prd-1","title":"PRD","content":"..."}]}\'',
+          responseExample: `{
+  "success": true,
+  "data": { "source": "ai", "valid": true, "nodes": 38, "edges": 12, "flows": 5, "path": "brains/default/project-wiki/business-flows.json", "warnings": [] }
+}`
         }
       ]
     },

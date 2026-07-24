@@ -1672,6 +1672,29 @@ app.get('/api/business-graph', async (req, res) => {
   }
 });
 
+// POST /api/business-graph - 从 project-wiki 文档重新生成业务图谱（AI 优先，确定性骨架兜底）
+// 像 api_graph_builder 那样由 server 经 callPython 调用 skills 模块；body.ai=false 可强制仅用确定性骨架。
+app.post('/api/business-graph', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
+    const useAi = !(req.body && req.body.ai === false);
+    const args = ['generate', '--brain', brainRepo, useAi ? '--ai' : '--no-ai'];
+    // 素材模式：将选定 Wiki 页面内容写入临时文件，交由 Python 仅基于这些素材生成。
+    // body.sources: [{ id, title, content }]；为空/不存在则回退全量扫描 project-wiki。
+    if (req.body && Array.isArray(req.body.sources) && req.body.sources.length) {
+      const tmp = path.join(PROJECT_ROOT, 'data', `bg-sources-${Date.now()}.json`);
+      fs.writeFileSync(tmp, JSON.stringify(req.body.sources), 'utf-8');
+      args.push('--sources-file', tmp);
+    }
+    // callPython 已将 Python stdout 解析为 JSON 对象返回
+    const out = await callPython('skills/business_graph_builder.py', args);
+    res.json({ success: true, data: out });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/graph-data', async (req, res) => {
   try {
     const pid = resolveProject(req);

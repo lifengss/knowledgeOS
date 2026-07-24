@@ -361,8 +361,10 @@ def _call_ai(prompt):
         return None
 
 
-def generate(brain_dir, use_ai=True):
-    """从 project-wiki 文档重新生成业务图谱。
+def generate(brain_dir, use_ai=True, sources=None):
+    """从 project-wiki 文档(或指定的 sources 素材)重新生成业务图谱。
+    sources: 可选 list，每个元素为 dict {id, title, content} 或纯 str 文本。
+             提供时仅基于这些素材生成；否则全量扫描 project-wiki。
     优先 AI 业务依赖分析；AI 不可用 / 输出不合法时回退到确定性骨架（scaffold）。
     返回 { success, source, valid, nodes, edges, flows, path, warnings }。
     """
@@ -381,32 +383,51 @@ def generate(brain_dir, use_ai=True):
     api_main = scored[0][0] if scored else (api_docs[0] if api_docs else None)
     arch_main = arch_docs[0] if arch_docs else None
 
-    data, source = None, "deterministic"
-    if use_ai:
+    # 构造素材 fragments：sources 模式仅用所选素材；否则全量扫描 project-wiki
+    src_labels = []
+    if sources:
         fragments = []
+        for s in sources:
+            if isinstance(s, dict):
+                title = s.get("title") or s.get("id") or "素材"
+                content = s.get("content") or ""
+            else:
+                title = "素材"
+                content = str(s)
+            if content.strip():
+                fragments.append("==== 素材：%s ====\n%s" % (title, content))
+                src_labels.append(title)
+    else:
+        fragments = []
+        src_labels = [os.path.basename(x) for x in (arch_main, api_main) if x]
         for p in arch_docs[:2]:
             fragments.append("==== 架构/PRD 文档：%s ====\n%s" % (os.path.basename(p), _read_truncated(p, 6000)))
         for p in api_docs[:6]:
             fragments.append("==== API 文档：%s ====\n%s" % (os.path.basename(p), _read_truncated(p, 3000)))
-        if fragments:
-            prompt = ("以下是知识管理系统的架构/PRD 与 API 文档片段，请据此抽取业务步骤、依赖与可测试场景，"
-                      "严格输出规范 JSON：\n\n" + "\n\n".join(fragments))
-            text = _call_ai(prompt)
-            if text:
-                cand = _extract_json(text)
-                if cand:
-                    errs, _ = validate(cand)
-                    if not errs:
-                        data = cand
-                        source = "ai"
-                        data.setdefault("meta", {})["generatedAt"] = datetime.date.today().isoformat()
+
+    data, source = None, "deterministic"
+    if use_ai and fragments:
+        prompt = ("以下是知识管理系统的项目 Wiki 素材片段，请据此抽取业务步骤、依赖与可测试场景，"
+                  "严格输出规范 JSON：\n\n" + "\n\n".join(fragments))
+        text = _call_ai(prompt)
+        if text:
+            cand = _extract_json(text)
+            if cand:
+                errs, _ = validate(cand)
+                if not errs:
+                    data = cand
+                    source = "ai"
+                    data.setdefault("meta", {})["generatedAt"] = datetime.date.today().isoformat()
+                    data.setdefault("meta", {})["generatedFrom"] = src_labels
 
     if data is None:
+        # 回退确定性骨架：端点来自全量 API 文档扫描（sources 模式素材中不含端点时的兜底）
         data = scaffold_from_api_doc(api_main, arch_main)
-        data["meta"]["generatedFrom"] = [
-            os.path.basename(x) for x in (arch_main, api_main) if x
-        ]
+        data["meta"]["generatedFrom"] = src_labels
         source = "deterministic"
+        if sources and api_main is None:
+            warns_ = data.setdefault("_notice", [])
+            warns_.append("所选素材未包含 API 文档，已用空骨架回退")
 
     errs, warns = validate(data)
     md = json_to_markdown(data)
@@ -459,6 +480,7 @@ def main(argv=None):
                        help="启用 AI 业务依赖分析（默认）")
     p_gen.add_argument("--no-ai", dest="use_ai", action="store_false",
                        help="仅用确定性骨架（不调用 AI）")
+    p_gen.add_argument("--sources-file", help="素材 JSON 文件路径（list of {id,title,content}），优先于全量扫描")
 
     args = ap.parse_args(argv)
 
@@ -519,7 +541,19 @@ def main(argv=None):
         return 0
 
     if args.cmd == "generate":
-        res = generate(args.brain, args.use_ai)
+        sources = None
+        sf = getattr(args, "sources_file", None)
+        if sf:
+            try:
+                with open(sf, "r", encoding="utf-8") as f:
+                    sources = json.load(f)
+            except Exception:
+                sources = None
+            try:
+                os.remove(sf)
+            except Exception:
+                pass
+        res = generate(args.brain, args.use_ai, sources)
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
 

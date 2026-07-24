@@ -1066,6 +1066,56 @@ curl "http://localhost:3000/api/business-graph?project=default"
 
 ---
 
+### POST /api/business-graph
+
+**功能**：从 project-wiki 的「架构/PRD」+「API 接口文档」重新生成业务图谱并入库（触发重建）。优先调用统一 AI 通道（codebuddy/openai）做业务依赖分析；AI 不可用或输出不合法时回退到确定性骨架（由 API 文档端点生成节点骨架）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+| ai | body | 否 | `true`（默认）启用 AI 分析；`false` 强制仅用确定性骨架 |
+| sources | body | 否 | 素材模式：`[{id, title, content}]`，仅基于所选「项目 Wiki」页面生成；缺省则全量扫描 project-wiki |
+
+**请求示例**：
+
+```bash
+# 确定性骨架（快速、离线）
+curl -X POST "http://localhost:3000/api/business-graph?project=default" \
+  -H "Content-Type: application/json" -d '{"ai": false}'
+
+# AI 业务依赖分析（全量 project-wiki）
+curl -X POST "http://localhost:3000/api/business-graph?project=default" \
+  -H "Content-Type: application/json" -d '{"ai": true}'
+
+# 仅基于所选素材（如两个 Wiki 页面）生成
+curl -X POST "http://localhost:3000/api/business-graph?project=default" \
+  -H "Content-Type: application/json" \
+  -d '{"ai": true, "sources": [{"id":"prd-xxx","title":"PRD","content":"..."}, {"id":"api-yyy","title":"API","content":"..."}]}'
+```
+
+> 网页端「业务流程依赖知识图谱」页提供 **选择素材生成** 按钮：弹框列出当前项目的「项目 Wiki」页面（复选），确认后自动读取所选页面内容并以上述 `sources` 形式提交。
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "source": "ai",
+    "valid": true,
+    "nodes": 38,
+    "edges": 12,
+    "flows": 5,
+    "path": "brains/default/project-wiki/business-flows.json",
+    "warnings": []
+  }
+}
+```
+
+**注**：`source` 为 `ai`（AI 生成）或 `deterministic`（确定性骨架兜底）；重建会覆盖 `project-wiki/business-flows.json` 与 `.md`。
+
+---
+
 ## 11.5 AI 平台对接（AI Adapter）
 
 知识库侧 AI 平台适配器，**对齐 testcase-gen-frontend 系统设置**设计：codebuddy / openai / none 三通道，配置持久化于 `data/ai_config.json`（env 种子 + 文件热更新）。`generate-quality-rule` 服务于设计“链路 3a 人工编辑优化”——由人工编辑前后内容生成质量规则：优先调用 AI 提炼，未配置 AI 或调用失败时回退确定性 diff 拼装（difflib，稳定可离线）。
