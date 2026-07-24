@@ -107,6 +107,8 @@ function toggleTheme() {
   updateThemeIcon();
   if (location.hash === '#graph') {
     renderGraph();
+  } else if (location.hash === '#bizflow') {
+    initBizflow();
   }
 }
 
@@ -582,6 +584,29 @@ const pageTemplates = {
     }
   },
 
+  bizflow: async () => {
+    return `
+      <div class="section">
+        <h3 class="section-title">业务流程与依赖知识图谱</h3>
+        <p class="muted" style="margin-bottom:14px;">业务步骤节点、依赖关系与可测试场景的可视化。生成测试用例时可据此理解业务上下文与调用链路。</p>
+        <div id="bizflow-toolbar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+          <select id="bizflow-scenario" class="input" style="max-width:300px;" onchange="bizflowHighlightScenario(this.value)">
+            <option value="">— 选择可测试场景高亮 —</option>
+          </select>
+          <input id="bizflow-search" class="input" style="max-width:220px;" placeholder="搜索步骤 id / 名称…" oninput="bizflowFilter(this.value)">
+          <button class="btn btn-secondary btn-sm" onclick="bizflowReset()">重置视图</button>
+          <span id="bizflow-status" class="muted" style="font-size:12px;"></span>
+        </div>
+        <div id="bizflow-container" style="position:relative;height:660px;background:radial-gradient(1200px 600px at 50% -10%, rgba(99,102,241,.10), transparent 60%), var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+          <svg id="bizflow-svg" style="width:100%;height:100%;cursor:grab;display:block;"></svg>
+          <div id="bizflow-legend" style="position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-muted);background:rgba(15,18,28,.6);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:10px;padding:10px 12px;max-height:240px;overflow:auto;"></div>
+          <div id="bizflow-detail" style="position:absolute;right:14px;top:14px;width:330px;max-height:calc(100% - 28px);overflow:auto;background:rgba(15,18,28,.74);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--text);display:none;box-shadow:var(--shadow);"></div>
+          <div id="bizflow-tooltip" style="position:absolute;display:none;background:var(--card-solid);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;pointer-events:none;z-index:20;border:1px solid var(--border);box-shadow:var(--shadow);font-weight:500;white-space:nowrap;"></div>
+        </div>
+      </div>
+    `;
+  },
+
   wiki: async () => {
     return `
       <div class="wiki-layout">
@@ -959,7 +984,37 @@ const pageTemplates = {
       return errorBox('加载统计失败: ' + err.message);
     }
   },
-  apidocs: () => window.renderApiDocs()
+  apidocs: () => window.renderApiDocs(),
+  tutorial: async () => {
+    try {
+      const res = await fetch('/tutorial/manifest.json?t=' + Date.now());
+      if (!res.ok) throw new Error('教程清单加载失败 (' + res.status + ')');
+      const manifest = await res.json();
+      let sysVer = '';
+      try { const h = await apiGet('/health'); sysVer = h.version || ''; } catch (e) {}
+      const tv = manifest.tutorialVersion || '?';
+      const sv = manifest.systemVersion || '';
+      let banner = '';
+      if (sysVer && sv && sysVer !== sv) {
+        banner = '<div class="tut-banner">⚠ 系统当前版本为 V' + sysVer + '，本教程基于 V' + sv + '，部分内容可能待复核与更新。</div>';
+      }
+      const chList = (manifest.chapters || []).map(c =>
+        '<div class="tut-ch" data-file="' + escapeHtml(c.file) + '" onclick="tutorialLoadChapter(\'' + c.file + '\')">' +
+          '<div class="tut-ch-title">' + escapeHtml(c.title) + '</div>' +
+          '<div class="tut-ch-sum">' + escapeHtml(c.summary || '') + '</div>' +
+        '</div>'
+      ).join('');
+      return '<div class="tut-wrap">' +
+        '<aside class="tut-side">' +
+          '<div class="tut-side-head"><span class="tut-ver">教程 V' + tv + '</span><span class="tut-sys">系统 V' + sv + '</span></div>' +
+          chList +
+        '</aside>' +
+        '<section class="tut-main">' + banner + '<div id="tut-content"><div class="loading">正在加载教程…</div></div></section>' +
+      '</div>';
+    } catch (e) {
+      return errorBox('加载教程失败: ' + e.message);
+    }
+  }
 };
 
 const titles = {
@@ -974,7 +1029,8 @@ const titles = {
   audit: '审计日志',
   quality: '质量监控',
   dashboardStats: '审计大盘',
-  settings: '系统设置'
+  settings: '系统设置',
+  tutorial: '使用教程'
 };
 
 // ---------------------------------------------------------------
@@ -1060,10 +1116,14 @@ async function renderPage(page) {
       // graph 页面渲染后自动初始化力导向图；wiki 页面渲染后加载索引
       if (page === 'graph') {
         setTimeout(() => renderGraph(), 50);
+      } else if (page === 'bizflow') {
+        setTimeout(() => initBizflow(), 50);
       } else if (page === 'wiki') {
         setTimeout(() => loadWikiIndex(), 50);
       } else if (page === 'verify') {
         setTimeout(() => renderVerify(), 50);
+      } else if (page === 'tutorial') {
+        setTimeout(() => tutorialAutoLoad(), 60);
       }
     } catch (err) {
       contentEl.innerHTML = errorBox('页面渲染失败: ' + err.message);
@@ -2463,6 +2523,38 @@ function scrollToHeading(id) {
   if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ---------------------------------------------------------------
+// 使用教程
+// ---------------------------------------------------------------
+function tutorialAutoLoad() {
+  fetch('/tutorial/manifest.json?t=' + Date.now())
+    .then(r => r.json())
+    .then(m => { const first = (m.chapters || [])[0]; if (first) tutorialLoadChapter(first.file); })
+    .catch(() => {});
+}
+
+async function tutorialLoadChapter(file) {
+  const c = document.getElementById('tut-content');
+  if (!c) return;
+  c.innerHTML = '<div class="loading">加载中...</div>';
+  try {
+    const res = await fetch('/tutorial/chapters/' + encodeURIComponent(file) + '?t=' + Date.now());
+    if (!res.ok) throw new Error('章节加载失败 (' + res.status + ')');
+    const md = await res.text();
+    c.innerHTML = '<article class="tut-article">' + renderTutorialMarkdown(md) + '</article>';
+    document.querySelectorAll('.tut-ch').forEach(el => el.classList.toggle('active', el.dataset.file === file));
+    c.scrollTop = 0;
+  } catch (e) {
+    c.innerHTML = '<div class="error-box">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderTutorialMarkdown(md) {
+  const toc = buildToc(md);
+  const body = renderMarkdown(md);
+  return toc + '<div class="tut-body">' + body + '</div>';
+}
+
 function slugify(s) {
   return (s || '').trim().toLowerCase()
     .replace(/\s+/g, '-')
@@ -2473,6 +2565,7 @@ function slugify(s) {
 function inlineMd(text) {
   if (!text) return '';
   let s = escapeHtml(text);
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, a, u) => `<img class="md-img" src="${u.trim().replace(/"/g, '%22')}" alt="${escapeHtml(a)}" loading="lazy">`);
   s = s.replace(/`([^`]+)`/g, (m, c) => `<code class="md-code">${c}</code>`);
   s = s.replace(/\[\[([^\]]+)\]\]/g, (m, p) => `<a class="md-wikilink" href="javascript:void(0)" onclick="openWikiPage('${slugify(p)}')">${escapeHtml(p)}</a>`);
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, t, u) => `<a class="md-link" href="${u}" target="_blank" rel="noopener">${t}</a>`);
@@ -2504,6 +2597,8 @@ function renderMarkdown(md) {
   const closeList = () => { if (inList) { html += `</${listType}>`; inList = false; } };
   while (i < lines.length) {
     const line = lines[i];
+    const imgLine = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (imgLine) { flushP(); closeList(); html += `<figure class="md-figure"><img class="md-img" src="${imgLine[2].trim().replace(/"/g, '%22')}" alt="${escapeHtml(imgLine[1])}" loading="lazy"></figure>`; i++; continue; }
     if (/^```/.test(line)) {
       flushP(); closeList();
       const buf = [];
@@ -3186,3 +3281,420 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 window.addEventListener('mouseup', () => { graphState.dragging = null; });
+
+// ---------------------------------------------------------------
+// 业务流程与依赖知识图谱（SVG 力导向，精致渲染）
+// ---------------------------------------------------------------
+const BIZFLOW_NS = 'http://www.w3.org/2000/svg';
+const BIZFLOW_EDGE_COLOR = {
+  prereq: '#94a3b8', sequence: '#38bdf8', produces: '#34d399', context: '#fbbf24'
+};
+let bizflow = null;
+let BIZFLOW_WIRED = false;
+
+async function initBizflow() {
+  const container = document.getElementById('bizflow-container');
+  if (!container) return;
+  if (bizflow && bizflow.raf) cancelAnimationFrame(bizflow.raf);
+  try {
+    const res = await apiGet('/business-graph');
+    if (!res.success || !res.data) {
+      container.innerHTML = '<div class="empty-state" style="padding:48px;text-align:center;">未找到业务图谱。请先生成 <code>business-flows.json</code>（节点/边/场景）并执行入库，写入 project-wiki。</div>';
+      return;
+    }
+    bizflow = buildBizflowModel(res.data);
+    renderBizflow();
+    const sel = document.getElementById('bizflow-scenario');
+    if (sel) sel.innerHTML = '<option value="">— 选择可测试场景高亮 —</option>' +
+      bizflow.flows.map(f => `<option value="${f.id}">${escapeHtml(f.id)} · ${escapeHtml(f.name)}</option>`).join('');
+    const st = document.getElementById('bizflow-status');
+    if (st) st.textContent = `${bizflow.nodes.length} 节点 / ${bizflow.edges.length} 边 / ${bizflow.flows.length} 场景`;
+    renderBizflowLegend();
+  } catch (err) {
+    container.innerHTML = '<div class="error-box">加载失败: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function buildBizflowModel(data) {
+  const domains = (data.domains || []).map(d => ({ id: d.id, name: d.name, color: d.color }));
+  const domainMap = {};
+  domains.forEach(d => domainMap[d.id] = d);
+  const nodes = (data.nodes || []).map(n => ({
+    id: n.id,
+    domain: n.domain,
+    title: n.title || n.label || n.id,
+    method: n.method, path: n.path,
+    api: n.api || (n.method && n.path ? n.method + ' ' + n.path : '—'),
+    role: n.role || '', summary: n.summary || '',
+    produces: n.produces || [], consumes: n.consumes || [],
+    notes: n.notes || '',
+    color: (domainMap[n.domain] && domainMap[n.domain].color) || '#888'
+  }));
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.id] = n);
+  const edges = (data.edges || []).map((e, i) => ({
+    id: 'e' + i, from: e.from, to: e.to,
+    type: e.type || 'sequence', label: e.label || '',
+    color: BIZFLOW_EDGE_COLOR[e.type] || '#94a3b8'
+  })).filter(e => nodeMap[e.from] && nodeMap[e.to]);
+  const flows = (data.flows || []).map(f => ({
+    id: f.id, name: f.name || f.id, description: f.description || '', steps: f.steps || []
+  }));
+  const neighbors = {};
+  nodes.forEach(n => neighbors[n.id] = new Set());
+  edges.forEach(e => { neighbors[e.from].add(e.to); neighbors[e.to].add(e.from); });
+  nodes.forEach(n => n._deg = neighbors[n.id].size);
+  return {
+    meta: data.meta || {}, domains, domainMap, nodes, nodeMap, edges, flows, neighbors,
+    tf: { x: 0, y: 0, k: 1 }, selected: null, highlight: null, scenario: null, filter: null,
+    alpha: 1, raf: null, drag: null
+  };
+}
+
+function renderBizflow() {
+  const svg = document.getElementById('bizflow-svg');
+  if (!svg || !bizflow) return;
+  const w = svg.clientWidth || 900, h = svg.clientHeight || 640;
+  bizflow.W = w; bizflow.H = h;
+  if (bizflow.nodes[0] && bizflow.nodes[0].x === undefined) {
+    const R = Math.min(w, h) * 0.42;
+    bizflow.nodes.forEach((n, i) => {
+      const a = (i / bizflow.nodes.length) * Math.PI * 2;
+      n.x = w / 2 + R * Math.cos(a); n.y = h / 2 + R * Math.sin(a);
+      n.vx = 0; n.vy = 0; n.fixed = false;
+    });
+  }
+  drawBizflow();
+  startBizflowSim();
+}
+
+function drawBizflow() {
+  const svg = document.getElementById('bizflow-svg');
+  if (!svg || !bizflow) return;
+  svg.innerHTML = '';
+  const defs = document.createElementNS(BIZFLOW_NS, 'defs');
+  Object.keys(BIZFLOW_EDGE_COLOR).forEach(t => {
+    const m = document.createElementNS(BIZFLOW_NS, 'marker');
+    m.setAttribute('id', 'bf-arrow-' + t);
+    m.setAttribute('viewBox', '0 0 10 10');
+    m.setAttribute('refX', '9'); m.setAttribute('refY', '5');
+    m.setAttribute('markerWidth', '7'); m.setAttribute('markerHeight', '7');
+    m.setAttribute('orient', 'auto-start-reverse');
+    const p = document.createElementNS(BIZFLOW_NS, 'path');
+    p.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+    p.setAttribute('fill', BIZFLOW_EDGE_COLOR[t]);
+    m.appendChild(p); defs.appendChild(m);
+  });
+  svg.appendChild(defs);
+  const root = document.createElementNS(BIZFLOW_NS, 'g');
+  root.setAttribute('id', 'bizflow-root');
+  root.setAttribute('transform', `translate(${bizflow.tf.x},${bizflow.tf.y}) scale(${bizflow.tf.k})`);
+  const eg = document.createElementNS(BIZFLOW_NS, 'g');
+  const ng = document.createElementNS(BIZFLOW_NS, 'g');
+  bizflow.edges.forEach(e => {
+    const p = document.createElementNS(BIZFLOW_NS, 'path');
+    p.setAttribute('class', 'bf-edge');
+    p.setAttribute('data-id', e.id);
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', e.color);
+    p.setAttribute('marker-end', `url(#bf-arrow-${e.type})`);
+    p.style.cursor = 'pointer';
+    p.addEventListener('mouseenter', ev => showBizflowTooltip(`${e.from} → ${e.to} 〔${e.type}〕`, ev));
+    p.addEventListener('mouseleave', hideBizflowTooltip);
+    eg.appendChild(p);
+  });
+  bizflow.nodes.forEach(n => {
+    const r = 12 + Math.min(9, n._deg || 0);
+    const g = document.createElementNS(BIZFLOW_NS, 'g');
+    g.setAttribute('class', 'bf-node');
+    g.setAttribute('data-id', n.id);
+    g.style.cursor = 'pointer';
+    const c1 = document.createElementNS(BIZFLOW_NS, 'circle');
+    c1.setAttribute('r', r); c1.setAttribute('fill', n.color); c1.setAttribute('fill-opacity', '0.18');
+    c1.setAttribute('stroke', n.color); c1.setAttribute('stroke-width', '1.6');
+    const c2 = document.createElementNS(BIZFLOW_NS, 'circle');
+    c2.setAttribute('r', r * 0.42); c2.setAttribute('fill', n.color);
+    const t1 = document.createElementNS(BIZFLOW_NS, 'text');
+    t1.setAttribute('x', '0'); t1.setAttribute('y', r + 13); t1.setAttribute('text-anchor', 'middle');
+    t1.setAttribute('font-size', '11'); t1.style.fontWeight = '600'; t1.style.fill = 'var(--text)';
+    t1.style.pointerEvents = 'none'; t1.textContent = n.id;
+    const t2 = document.createElementNS(BIZFLOW_NS, 'text');
+    const lbl = n.title.length > 9 ? n.title.slice(0, 8) + '…' : n.title;
+    t2.setAttribute('x', '0'); t2.setAttribute('y', r + 25); t2.setAttribute('text-anchor', 'middle');
+    t2.setAttribute('font-size', '10'); t2.style.fill = 'var(--text-muted)';
+    t2.style.pointerEvents = 'none'; t2.textContent = lbl;
+    g.appendChild(c1); g.appendChild(c2); g.appendChild(t1); g.appendChild(t2);
+    g.addEventListener('mouseenter', ev => { onBizflowHover(n.id, ev); });
+    g.addEventListener('mouseleave', onBizflowHoverEnd);
+    g.addEventListener('click', ev => { ev.stopPropagation(); bizflowSelectNode(n.id); });
+    ng.appendChild(g);
+  });
+  root.appendChild(eg); root.appendChild(ng); svg.appendChild(root);
+  svg.addEventListener('mousedown', onBizDown);
+  svg.addEventListener('wheel', onBizWheel, { passive: false });
+  if (!BIZFLOW_WIRED) {
+    window.addEventListener('mousemove', onBizMove);
+    window.addEventListener('mouseup', onBizUp);
+    BIZFLOW_WIRED = true;
+  }
+  updateBizflow();
+}
+
+function bizflowVisible() {
+  const bright = new Set(bizflow.nodes.map(n => n.id));
+  let hlEdges = new Set();
+  if (bizflow.highlight) {
+    bright.clear(); bright.add(bizflow.highlight);
+    bizflow.neighbors[bizflow.highlight].forEach(id => bright.add(id));
+  }
+  if (bizflow.scenario) {
+    const f = bizflow.flows.find(x => x.id === bizflow.scenario);
+    bright.clear();
+    if (f) {
+      f.steps.forEach(s => bright.add(s));
+      for (let i = 0; i < f.steps.length - 1; i++) {
+        const a = f.steps[i], b = f.steps[i + 1];
+        const e = bizflow.edges.find(e => (e.from === a && e.to === b) || (e.from === b && e.to === a));
+        if (e) hlEdges.add(e.id);
+      }
+    }
+  }
+  if (bizflow.filter) {
+    const q = bizflow.filter.toLowerCase();
+    bright.clear();
+    bizflow.nodes.forEach(n => {
+      if (n.id.toLowerCase().includes(q) || n.title.toLowerCase().includes(q)) bright.add(n.id);
+    });
+  }
+  return { bright, hlEdges };
+}
+
+function updateBizflow() {
+  const svg = document.getElementById('bizflow-svg');
+  if (!svg || !bizflow) return;
+  const root = document.getElementById('bizflow-root');
+  if (root) root.setAttribute('transform', `translate(${bizflow.tf.x},${bizflow.tf.y}) scale(${bizflow.tf.k})`);
+  const { bright, hlEdges } = bizflowVisible();
+  bizflow.edges.forEach(e => {
+    const a = bizflow.nodeMap[e.from], b = bizflow.nodeMap[e.to];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const off = 16;
+    const cx = (a.x + b.x) / 2 - (dy / len) * off;
+    const cy = (a.y + b.y) / 2 + (dx / len) * off;
+    const p = svg.querySelector(`.bf-edge[data-id="${e.id}"]`);
+    if (!p) return;
+    p.setAttribute('d', `M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`);
+    const dim = !(bright.has(e.from) && bright.has(e.to));
+    const hl = hlEdges.has(e.id);
+    p.setAttribute('stroke-width', hl ? 2.6 : 1.3);
+    p.setAttribute('stroke-opacity', dim ? 0.06 : (hl ? 1 : 0.55));
+    p.style.filter = hl ? 'drop-shadow(0 0 4px ' + e.color + ')' : 'none';
+  });
+  bizflow.nodes.forEach(n => {
+    const g = svg.querySelector(`.bf-node[data-id="${n.id}"]`);
+    if (!g) return;
+    g.setAttribute('transform', `translate(${n.x},${n.y})`);
+    const dim = !bright.has(n.id);
+    const hl = bizflow.highlight === n.id;
+    const sel = bizflow.selected === n.id;
+    g.setAttribute('opacity', dim ? 0.16 : 1);
+    const c1 = g.firstChild;
+    c1.setAttribute('stroke-width', sel ? 3 : (hl ? 2.6 : 1.6));
+    c1.setAttribute('fill-opacity', hl || sel ? 0.32 : 0.18);
+  });
+}
+
+function startBizflowSim() {
+  if (bizflow.raf) cancelAnimationFrame(bizflow.raf);
+  bizflow.alpha = 1;
+  const step = () => {
+    simulateBizflow();
+    updateBizflow();
+    if (bizflow.alpha > 0.02) {
+      bizflow.alpha *= 0.985;
+      bizflow.raf = requestAnimationFrame(step);
+    }
+  };
+  bizflow.raf = requestAnimationFrame(step);
+}
+
+function simulateBizflow() {
+  const nodes = bizflow.nodes, edges = bizflow.edges, k = 150, cx = bizflow.W / 2, cy = bizflow.H / 2;
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 0.01) { dx = Math.random(); dy = Math.random(); d2 = dx * dx + dy * dy; }
+      const d = Math.sqrt(d2);
+      const f = (k * k) / d2 * 0.5;
+      const fx = dx / d * f, fy = dy / d * f;
+      a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+    }
+  }
+  edges.forEach(e => {
+    const a = bizflow.nodeMap[e.from], b = bizflow.nodeMap[e.to];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = (d - k) * 0.02;
+    const fx = dx / d * f, fy = dy / d * f;
+    a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+  });
+  nodes.forEach(n => { n.vx += (cx - n.x) * 0.003; n.vy += (cy - n.y) * 0.003; });
+  const damp = 0.85, alpha = bizflow.alpha;
+  nodes.forEach(n => {
+    if (n.fixed) { n.vx = 0; n.vy = 0; return; }
+    n.x += n.vx * alpha; n.y += n.vy * alpha;
+    n.vx *= damp; n.vy *= damp;
+  });
+}
+
+function onBizDown(e) {
+  if (!bizflow) return;
+  const nodeG = e.target.closest && e.target.closest('.bf-node');
+  const rect = document.getElementById('bizflow-svg').getBoundingClientRect();
+  if (nodeG) {
+    const id = nodeG.dataset.id;
+    bizflow.nodeMap[id].fixed = true;
+    bizflow.drag = { type: 'node', id, rect };
+  } else {
+    bizflow.drag = { type: 'canvas', x: e.clientX, y: e.clientY };
+    e.currentTarget.style.cursor = 'grabbing';
+  }
+}
+
+function onBizMove(e) {
+  if (!bizflow || !bizflow.drag) return;
+  const rect = document.getElementById('bizflow-svg').getBoundingClientRect();
+  if (bizflow.drag.type === 'node') {
+    const n = bizflow.nodeMap[bizflow.drag.id];
+    n.x = (e.clientX - rect.left - bizflow.tf.x) / bizflow.tf.k;
+    n.y = (e.clientY - rect.top - bizflow.tf.y) / bizflow.tf.k;
+    bizflow.alpha = Math.max(bizflow.alpha, 0.3);
+    updateBizflow();
+  } else {
+    bizflow.tf.x += e.clientX - bizflow.drag.x;
+    bizflow.tf.y += e.clientY - bizflow.drag.y;
+    bizflow.drag.x = e.clientX; bizflow.drag.y = e.clientY;
+    updateBizflow();
+  }
+}
+
+function onBizUp() {
+  if (!bizflow) return;
+  if (bizflow.drag && bizflow.drag.type === 'node') bizflow.nodeMap[bizflow.drag.id].fixed = false;
+  bizflow.drag = null;
+  const svg = document.getElementById('bizflow-svg');
+  if (svg) svg.style.cursor = 'grab';
+}
+
+function onBizWheel(e) {
+  if (!bizflow) return;
+  e.preventDefault();
+  const rect = e.currentTarget.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const oldK = bizflow.tf.k;
+  const newK = Math.max(0.3, Math.min(3, oldK * (e.deltaY < 0 ? 1.12 : 0.89)));
+  bizflow.tf.x = mx - (mx - bizflow.tf.x) * (newK / oldK);
+  bizflow.tf.y = my - (my - bizflow.tf.y) * (newK / oldK);
+  bizflow.tf.k = newK;
+  updateBizflow();
+}
+
+function onBizflowHover(id, e) {
+  if (!bizflow) return;
+  bizflow.highlight = id;
+  updateBizflow();
+  const n = bizflow.nodeMap[id];
+  showBizflowTooltip(`${id} · ${n.title}`, e);
+}
+
+function onBizflowHoverEnd() {
+  if (!bizflow) return;
+  bizflow.highlight = null;
+  updateBizflow();
+  hideBizflowTooltip();
+}
+
+function bizflowSelectNode(id) {
+  if (!bizflow) return;
+  bizflow.selected = id;
+  updateBizflow();
+  const el = document.getElementById('bizflow-detail');
+  if (!id) { el.style.display = 'none'; return; }
+  const n = bizflow.nodeMap[id];
+  const deps = [...bizflow.neighbors[id]];
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+      <h3 style="margin:0;font-size:15px;line-height:1.3;">${escapeHtml(n.id)} · ${escapeHtml(n.title)}</h3>
+      <button class="btn btn-secondary btn-sm" onclick="bizflowSelectNode(null)">×</button>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+      <span class="tag" style="background:${n.color}33;color:${n.color};">${escapeHtml(n.domain)}</span>
+      ${n.role ? `<span class="tag">${escapeHtml(n.role)}</span>` : ''}
+    </div>
+    <dl style="margin:12px 0 0;font-size:12px;line-height:1.7;">
+      <dt style="color:var(--text-muted)">接口</dt><dd style="margin:0 0 6px;"><code>${escapeHtml(n.api)}</code></dd>
+      <dt style="color:var(--text-muted)">摘要</dt><dd style="margin:0 0 6px;">${escapeHtml(n.summary)}</dd>
+      ${n.produces.length ? `<dt style="color:var(--text-muted)">产出</dt><dd style="margin:0 0 6px;">${n.produces.map(escapeHtml).join('、')}</dd>` : ''}
+      ${n.consumes.length ? `<dt style="color:var(--text-muted)">前置资源</dt><dd style="margin:0 0 6px;">${n.consumes.map(escapeHtml).join('、')}</dd>` : ''}
+      <dt style="color:var(--text-muted)">直接依赖 / 被依赖</dt><dd style="margin:0;">${deps.length ? escapeHtml(deps.join('、')) : '(无)'}</dd>
+      ${n.notes ? `<dt style="color:var(--text-muted);margin-top:6px;">备注</dt><dd style="margin:0;">${escapeHtml(n.notes)}</dd>` : ''}
+    </dl>`;
+  el.style.display = 'block';
+}
+
+function bizflowHighlightScenario(flowId) {
+  if (!bizflow) return;
+  bizflow.scenario = flowId || null;
+  updateBizflow();
+}
+
+function bizflowFilter(q) {
+  if (!bizflow) return;
+  bizflow.filter = q.trim() || null;
+  updateBizflow();
+}
+
+function bizflowReset() {
+  if (!bizflow) return;
+  bizflow.highlight = null; bizflow.scenario = null; bizflow.filter = null; bizflow.selected = null;
+  bizflow.tf = { x: 0, y: 0, k: 1 };
+  const el = document.getElementById('bizflow-detail'); if (el) el.style.display = 'none';
+  const sf = document.getElementById('bizflow-search'); if (sf) sf.value = '';
+  const sc = document.getElementById('bizflow-scenario'); if (sc) sc.value = '';
+  bizflow.alpha = 0.5;
+  updateBizflow();
+}
+
+function renderBizflowLegend() {
+  const el = document.getElementById('bizflow-legend');
+  if (!el || !bizflow) return;
+  let html = '<div style="font-weight:600;margin-bottom:4px;color:var(--text);">业务域</div>';
+  bizflow.domains.forEach(d => {
+    html += `<div style="display:flex;align-items:center;gap:7px;"><span style="width:10px;height:10px;border-radius:50%;background:${d.color};display:inline-block;"></span>${escapeHtml(d.id)} · ${escapeHtml(d.name)}</div>`;
+  });
+  html += '<div style="font-weight:600;margin:8px 0 4px;color:var(--text);">依赖类型</div>';
+  const labels = { prereq: '前置', sequence: '顺序', produces: '产出', context: '上下文' };
+  Object.keys(BIZFLOW_EDGE_COLOR).forEach(t => {
+    html += `<div style="display:flex;align-items:center;gap:7px;"><span style="width:18px;height:0;border-top:2px solid ${BIZFLOW_EDGE_COLOR[t]};display:inline-block;"></span>${labels[t]}</div>`;
+  });
+  el.innerHTML = html;
+}
+
+function showBizflowTooltip(text, e) {
+  const tip = document.getElementById('bizflow-tooltip');
+  if (!tip) return;
+  const rect = document.getElementById('bizflow-container').getBoundingClientRect();
+  tip.textContent = text;
+  tip.style.display = 'block';
+  tip.style.left = (e.clientX - rect.left + 12) + 'px';
+  tip.style.top = (e.clientY - rect.top + 12) + 'px';
+}
+
+function hideBizflowTooltip() {
+  const tip = document.getElementById('bizflow-tooltip');
+  if (tip) tip.style.display = 'none';
+}

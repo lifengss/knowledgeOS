@@ -1,0 +1,100 @@
+{
+  "systemVersion": "1.0.0",
+  "tutorialVersion": "1.0.0",
+  "updatedAt": "2026-07-24",
+  "title": "知识管理系统（KS）使用教程",
+  "description": "分章节、分案例介绍知识管理系统的使用方法。教程大版本随系统版本，小版本独立迭代。",
+  "chapters": [
+    {
+      "id": "preface",
+      "file": "preface.md",
+      "title": "前言 · 关于本教程",
+      "summary": "教程的版本机制、阅读方式与截图说明，以及系统升级后如何同步复核。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch01",
+      "file": "ch01.md",
+      "title": "第1章 快速上手：认识知识管理系统",
+      "summary": "首次打开界面、13 个功能模块、顶栏项目切换与导入/运行入口。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch02",
+      "file": "ch02.md",
+      "title": "第2章 项目管理：隔离与共享知识库",
+      "summary": "新建项目、切换项目，以及将私有知识晋升到共享库 _shared。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch03",
+      "file": "ch03.md",
+      "title": "第3章 导入源数据：让 PRD/代码/缺陷沉淀为知识",
+      "summary": "上传 PRD / 代码 / 缺陷，自动生成质量规则、缺陷经验、测试用例等知识条目。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch04",
+      "file": "ch04.md",
+      "title": "第4章 知识库浏览：分类检索与全文搜索",
+      "summary": "按分类浏览质量规则/缺陷经验/测试用例，并用搜索快速定位条目。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch05",
+      "file": "ch05.md",
+      "title": "第5章 草稿审核与人工编辑优化",
+      "summary": "编辑一条知识并「重分类移动」，生成编辑草稿，提交入库。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch06",
+      "file": "ch06.md",
+      "title": "第6章 冲突处理：当知识发生碰撞",
+      "summary": "解决知识冲突的三种方式：合并 / 覆盖 / 保留双方。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch07",
+      "file": "ch07.md",
+      "title": "第7章 项目 Wiki：把 PRD/需求变成可读文档",
+      "summary": "打开 PRD 的 Wiki 页，使用页面内目录与 [[wikilink]] 跳转。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch08",
+      "file": "ch08.md",
+      "title": "第8章 智能增强：抽取实体与生成 AI 摘要（GBrain）",
+      "summary": "从 PRD 抽取实体生成实体页；为 Wiki 页生成 AI 摘要。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch09",
+      "file": "ch09.md",
+      "title": "第9章 图谱可视化：看清知识与接口的关联",
+      "summary": "查看 API 依赖力导向图，并切换到「实体图谱」模式。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch10",
+      "file": "ch10.md",
+      "title": "第10章 知识问答：用自然语言查询知识",
+      "summary": "用自然语言提问，基于知识库获得带出处的答案。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch11",
+      "file": "ch11.md",
+      "title": "第11章 质量监控与审计：掌握系统健康度",
+      "summary": "查看质量监控仪表盘与审计日志，追踪每一次知识变更。",
+      "reviewedSystem": "1.0.0"
+    },
+    {
+      "id": "ch12",
+      "file": "ch12.md",
+      "title": "第12章 系统设置：对接 AI 平台与配置 GBrain",
+      "summary": "配置 AI 平台 endpoint，以及 GBrain 模型用于实体抽取与摘要。",
+      "reviewedSystem": "1.0.0"
+    }
+  ]
+}

@@ -1104,3 +1104,28 @@ details.wiki-index-group[open] > summary::before { transform: rotate(90deg); }
   cursor: pointer;
 }
 .checkbox-label input { width: 15px; height: 15px; accent-color: var(--primary); }
+
+/* ===== 使用教程 ===== */
+.tut-wrap { display: flex; gap: 22px; height: calc(100vh - 150px); }
+.tut-side { width: 290px; flex: none; border-right: 1px solid var(--border); padding-right: 14px; overflow-y: auto; }
+.tut-side-head { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.tut-ver { background: var(--bg-lighter); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--primary); font-weight: 600; }
+.tut-sys { background: var(--bg-lighter); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--text-muted); }
+.tut-ch { padding: 11px 12px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; margin-bottom: 6px; transition: background .15s, border-color .15s; }
+.tut-ch:hover { background: var(--bg-lighter); }
+.tut-ch.active { background: var(--bg-lighter); border-color: var(--border-glow); }
+.tut-ch-title { font-weight: 600; font-size: 13.5px; color: var(--text); }
+.tut-ch-sum { font-size: 12px; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
+.tut-main { flex: 1; overflow-y: auto; padding-right: 10px; }
+.tut-banner { background: rgba(255,170,0,.12); border: 1px solid rgba(255,170,0,.4); color: #ffcf66; padding: 10px 14px; border-radius: 10px; margin-bottom: 16px; font-size: 13px; }
+.tut-article { max-width: 900px; }
+.tut-article h1 { font-size: 24px; margin: 4px 0 16px; }
+.tut-article h2 { font-size: 19px; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.tut-article h3 { font-size: 16px; margin: 18px 0 8px; }
+.tut-article p { margin: 10px 0; color: var(--text); }
+.tut-article ul, .tut-article ol { margin: 10px 0 10px 22px; }
+.tut-article li { margin: 5px 0; }
+.tut-article blockquote { border-left: 3px solid var(--primary); padding: 6px 14px; margin: 14px 0; color: var(--text-muted); background: rgba(0,212,255,.05); border-radius: 0 8px 8px 0; }
+.md-figure { margin: 18px 0; text-align: center; }
+.md-img { max-width: 100%; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); background: var(--bg-light); }
+.tut-article table { margin: 14px 0; }

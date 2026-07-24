@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>业务知识图谱</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --glass: rgba(255,255,255,0.06);
+    --glass-border: rgba(255,255,255,0.12);
+    --text: #e5e7eb;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(56,189,248,0.18), transparent 60%),
+      radial-gradient(1000px 500px at 110% 10%, rgba(168,85,247,0.18), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(52,211,153,0.14), transparent 60%),
+      var(--bg);
+    overflow: hidden;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  header {
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: var(--glass); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--glass-border);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  .controls { display: flex; gap: 10px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+  select, button {
+    background: rgba(255,255,255,0.08); color: var(--text);
+    border: 1px solid var(--glass-border); border-radius: 8px;
+    padding: 7px 11px; font-size: 13px; cursor: pointer;
+  }
+  button:hover, select:hover { background: rgba(255,255,255,0.14); }
+  #main { flex: 1; display: flex; min-height: 0; }
+  #graph-wrap { flex: 1; position: relative; }
+  svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  svg:active { cursor: grabbing; }
+  .edge { stroke-width: 1.4; opacity: 0.45; }
+  .edge.prereq { stroke: #ef4444; }
+  .edge.sequence { stroke: #64748b; }
+  .edge.produces { stroke: #22c55e; }
+  .edge.context { stroke: #fbbf24; stroke-dasharray: 4 4; }
+  .node circle { stroke: rgba(0,0,0,0.35); stroke-width: 1.5; cursor: pointer; transition: r .15s; }
+  .node text { fill: var(--text); font-size: 11px; pointer-events: none; paint-order: stroke; stroke: #0b1020; stroke-width: 3px; }
+  .dim { opacity: 0.12 !important; }
+  .hl circle { stroke: #fff; stroke-width: 2.5; }
+  #detail {
+    width: 320px; flex: none; padding: 16px; overflow-y: auto;
+    background: var(--glass); backdrop-filter: blur(12px);
+    border-left: 1px solid var(--glass-border);
+  }
+  #detail h2 { font-size: 15px; margin: 0 0 4px; }
+  #detail .tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin: 4px 6px 4px 0; background: rgba(255,255,255,0.08); }
+  #detail dl { margin: 10px 0 0; font-size: 13px; }
+  #detail dt { color: var(--muted); margin-top: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  #detail dd { margin: 3px 0 0; line-height: 1.5; }
+  #detail code { background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+  #detail .empty { color: var(--muted); font-size: 13px; margin-top: 20px; }
+  #legend {
+    position: absolute; left: 14px; bottom: 14px;
+    background: var(--glass); border: 1px solid var(--glass-border); border-radius: 10px;
+    padding: 10px 12px; font-size: 12px; backdrop-filter: blur(10px); max-width: 220px;
+  }
+  #legend .row { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
+  #legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  #legend .ln { width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; flex: none; }
+  #legend h3 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  #legend .grp { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="title">业务知识图谱</h1>
+    <span class="meta" id="meta"></span>
+    <div class="controls">
+      <label style="font-size:12px;color:var(--muted)">场景</label>
+      <select id="scenario"><option value="">— 选择可测试场景高亮 —</option></select>
+      <button id="reset">重置视图</button>
+    </div>
+  </header>
+  <div id="main">
+    <div id="graph-wrap">
+      <svg id="graph"></svg>
+      <div id="legend"></div>
+    </div>
+    <aside id="detail"><div class="empty">点击任意节点查看业务步骤详情(接口 / 前后依赖)。</div></aside>
+  </div>
+</div>
+
+<script>
+const DATA = __DATA__;
+
+// ---------- 基础数据 ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("graph");
+const wrap = document.getElementById("graph-wrap");
+const nodes = DATA.nodes.map((n, i) => ({ ...n, x: Math.random() * wrap.clientWidth, y: Math.random() * wrap.clientHeight, vx: 0, vy: 0 }));
+const idx = new Map(nodes.map((n, i) => [n.id, i]));
+const edges = DATA.edges.map(e => ({ ...e, s: idx.get(e.from), t: idx.get(e.to) })).filter(e => e.s !== undefined && e.t !== undefined);
+const neighbors = new Map(nodes.map(n => [n.id, new Set()]));
+edges.forEach(e => { neighbors.get(e.from).add(e.to); neighbors.get(e.to).add(e.from); });
+const domainMap = new Map((DATA.domains || []).map(d => [d.id, d]));
+const domainColor = id => (domainMap.get(id) && domainMap.get(id).color) || "#888";
+
+// ---------- 标题 / 图例 ----------
+document.getElementById("title").textContent = (DATA.meta && DATA.meta.title) || "业务知识图谱";
+document.getElementById("meta").textContent =
+  (DATA.meta ? [DATA.nodes.length + " 步骤", DATA.edges.length + " 依赖", DATA.flows.length + " 场景"].join(" · ") : "");
+
+(function buildLegend() {
+  const el = document.getElementById("legend");
+  let html = '<div class="grp"><h3>业务域</h3>';
+  (DATA.domains || []).forEach(d => {
+    html += `<div class="row"><span class="sw" style="background:${d.color}"></span>${d.id} · ${d.name}</div>`;
+  });
+  html += '</div><div class="grp"><h3>依赖类型</h3>';
+  const types = [["prereq", "#ef4444", "硬前置"], ["sequence", "#64748b", "顺序"], ["produces", "#22c55e", "产出消费"], ["context", "#fbbf24", "贯穿上下文"]];
+  types.forEach(([t, c, label]) => {
+    html += `<div class="row"><span class="ln" style="border-top-color:${c};${t === "context" ? "border-top-style:dashed" : ""}"></span>${label}</div>`;
+  });
+  html += "</div>";
+  el.innerHTML = html;
+})();
+
+// ---------- 场景下拉 ----------
+(function buildScenarios() {
+  const sel = document.getElementById("scenario");
+  (DATA.flows || []).forEach(f => {
+    const o = document.createElement("option");
+    o.value = f.id; o.textContent = f.name;
+    sel.appendChild(o);
+  });
+})();
+
+// ---------- 创建 SVG 元素 ----------
+const edgeEls = edges.map(e => {
+  const l = document.createElementNS(SVGNS, "line");
+  l.setAttribute("class", "edge " + e.type);
+  svg.appendChild(l);
+  return l;
+});
+const nodeEls = nodes.map(n => {
+  const g = document.createElementNS(SVGNS, "g");
+  g.setAttribute("class", "node");
+  const c = document.createElementNS(SVGNS, "circle");
+  c.setAttribute("r", 9);
+  c.setAttribute("fill", domainColor(n.domain));
+  const t = document.createElementNS(SVGNS, "text");
+  t.setAttribute("x", 12); t.setAttribute("y", 4); t.textContent = n.id;
+  g.appendChild(c); g.appendChild(t);
+  svg.appendChild(g);
+  return g;
+});
+
+// ---------- 力导向布局 ----------
+const REP = 9000, SPRING = 0.02, L = 120, DAMP = 0.9, CENTER = 0.002;
+function tick() {
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy || 1;
+      const f = REP / d2; const d = Math.sqrt(d2);
+      const fx = (dx / d) * f, fy = (dy / d) * f;
+      a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+    }
+  }
+  edges.forEach(e => {
+    const a = nodes[e.s], b = nodes[e.t];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = SPRING * (d - L);
+    const fx = (dx / d) * f, fy = (dy / d) * f;
+    a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+  });
+  nodes.forEach(n => {
+    n.vx += (W / 2 - n.x) * CENTER; n.vy += (H / 2 - n.y) * CENTER;
+    n.vx *= DAMP; n.vy *= DAMP;
+    n.x += Math.max(-12, Math.min(12, n.vx));
+    n.y += Math.max(-12, Math.min(12, n.vy));
+    n.x = Math.max(12, Math.min(W - 12, n.x));
+    n.y = Math.max(12, Math.min(H - 12, n.y));
+  });
+  render();
+  requestAnimationFrame(tick);
+}
+
+function render() {
+  edges.forEach((e, i) => {
+    const a = nodes[e.s], b = nodes[e.t];
+    const l = edgeEls[i];
+    l.setAttribute("x1", a.x); l.setAttribute("y1", a.y);
+    l.setAttribute("x2", b.x); l.setAttribute("y2", b.y);
+  });
+  nodes.forEach((n, i) => {
+    const g = nodeEls[i];
+    g.querySelector("circle").setAttribute("cx", n.x);
+    g.querySelector("circle").setAttribute("cy", n.y);
+    g.querySelector("text").setAttribute("x", n.x + 12);
+    g.querySelector("text").setAttribute("y", n.y + 4);
+  });
+}
+
+// ---------- 交互:拖拽 + 点击 ----------
+let drag = null, downPos = null;
+function svgPoint(ev) {
+  const r = svg.getBoundingClientRect();
+  return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+}
+nodeEls.forEach((g, i) => {
+  g.addEventListener("pointerdown", ev => {
+    drag = nodes[i]; downPos = svgPoint(ev); drag.moved = false;
+    g.setPointerCapture(ev.pointerId);
+  });
+  g.addEventListener("pointermove", ev => {
+    if (drag !== nodes[i]) return;
+    const p = svgPoint(ev);
+    if (Math.hypot(p.x - downPos.x, p.y - downPos.y) > 3) drag.moved = true;
+    drag.x = p.x; drag.y = p.y; drag.vx = 0; drag.vy = 0;
+  });
+  g.addEventListener("pointerup", ev => {
+    if (drag === nodes[i] && !drag.moved) selectNode(nodes[i].id);
+    drag = null;
+  });
+});
+
+function selectNode(id) {
+  const set = new Set([id, ...neighbors.get(id)]);
+  applyHighlight(set, new Set());
+  renderDetail(id);
+}
+
+function applyHighlight(nodeSet, edgeSet) {
+  nodeEls.forEach((g, i) => g.classList.toggle("dim", nodeSet.size > 0 && !nodeSet.has(nodes[i].id)));
+  nodeEls.forEach((g, i) => g.classList.toggle("hl", nodeSet.has(nodes[i].id)));
+  edgeEls.forEach((l, i) => {
+    const e = edges[i];
+    const on = edgeSet.size > 0 ? edgeSet.has(i) : (nodeSet.size > 0 ? (nodeSet.has(e.from) && nodeSet.has(e.to)) : false);
+    l.classList.toggle("dim", nodeSet.size > 0 && !on);
+  });
+}
+
+function renderDetail(id) {
+  const n = nodes[idx.get(id)];
+  const deps = [...neighbors.get(id)];
+  const el = document.getElementById("detail");
+  const api = n.api || (n.method && n.path ? `${n.method} ${n.path}` : "—");
+  el.innerHTML = `
+    <h2>${n.id} · ${n.title || n.label || ""}</h2>
+    <span class="tag" style="background:${domainColor(n.domain)}33;color:${domainColor(n.domain)}">${n.domain}</span>
+    <span class="tag">${n.role || ""}</span>
+    <dl>
+      <dt>接口</dt><dd><code>${api}</code></dd>
+      <dt>摘要</dt><dd>${n.summary || ""}</dd>
+      ${n.produces && n.produces.length ? `<dt>产出</dt><dd>${n.produces.join("、")}</dd>` : ""}
+      ${n.consumes && n.consumes.length ? `<dt>前置资源</dt><dd>${n.consumes.join("、")}</dd>` : ""}
+      <dt>直接依赖 / 被依赖</dt><dd>${(deps.length ? deps : ["(无)"]).join("、")}</dd>
+      ${n.notes ? `<dt>备注</dt><dd>${n.notes}</dd>` : ""}
+    </dl>`;
+}
+
+// ---------- 场景高亮 ----------
+document.getElementById("scenario").addEventListener("change", ev => {
+  const f = (DATA.flows || []).find(x => x.id === ev.target.value);
+  if (!f) { resetView(); return; }
+  const set = new Set(f.steps);
+  const edgeSet = new Set();
+  f.steps.forEach((s, i) => {
+    if (i === 0) return;
+    const prev = f.steps[i - 1];
+    edges.forEach((e, ei) => { if (e.from === prev && e.to === s) edgeSet.add(ei); });
+  });
+  applyHighlight(set, edgeSet);
+  renderDetail(f.steps[f.steps.length - 1]);
+});
+
+function resetView() {
+  document.getElementById("scenario").value = "";
+  applyHighlight(new Set(), new Set());
+  document.getElementById("detail").innerHTML = '<div class="empty">点击任意节点查看业务步骤详情(接口 / 前后依赖)。</div>';
+}
+document.getElementById("reset").addEventListener("click", resetView);
+
+// ---------- 自适应尺寸 ----------
+function resize() { svg.setAttribute("viewBox", `0 0 ${wrap.clientWidth} ${wrap.clientHeight}`); }
+window.addEventListener("resize", resize); resize();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

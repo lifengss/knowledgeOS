@@ -1,0 +1,185 @@
+{
+  "meta": {
+    "title": "知识管理系统 V1.0 业务流程与依赖知识图谱",
+    "version": "1.0",
+    "generatedFrom": [
+      "test-knowledge-system/docs/知识管理系统-V1.0架构设计与技术方案.md",
+      "test-knowledge-system/docs/API-INTERFACE-DOC.md"
+    ],
+    "generatedAt": "2026-07-24",
+    "nodeSemantics": "节点 = 一次带语义的业务步骤(对应一次 API 调用)",
+    "edgeSemantics": "有向边 A→B 表示 B 在业务上依赖/须在 A 之后发生(A 为前置)",
+    "edgeTypes": {
+      "prereq": "硬前置:无 A 则 B 无法执行(如冲突未解决不能入库)",
+      "sequence": "时序/通常顺序:同一对象上的先后操作(如先建草稿再编辑)",
+      "produces": "产出回流:B 的执行会生成 A 域所需的对象(如生成用例产生草稿)",
+      "context": "上下文前置:跨域共有前置(如 project 维度)"
+    },
+    "notes": "J4(POST /api/wiki/:category/:id/extract-entities) 来自设计文档 §13.2,未列入 API-INTERFACE-DOC.md,已在 summary 中标注。"
+  },
+  "domains": [
+    { "id": "P", "name": "上下文/前置", "color": "#9aa7b5" },
+    { "id": "A", "name": "项目生命周期", "color": "#f59e0b" },
+    { "id": "B", "name": "源数据接入", "color": "#22d3ee" },
+    { "id": "C", "name": "草稿缓冲", "color": "#34d399" },
+    { "id": "D", "name": "冲突管理", "color": "#fb7185" },
+    { "id": "E", "name": "质量门控", "color": "#a78bfa" },
+    { "id": "F", "name": "入库(双通路)", "color": "#60a5fa" },
+    { "id": "G", "name": "知识库页面", "color": "#facc15" },
+    { "id": "H", "name": "检索与生成", "color": "#2dd4bf" },
+    { "id": "I", "name": "审计与统计", "color": "#c084fc" },
+    { "id": "J", "name": "AI适配/实体抽取", "color": "#f472b6" }
+  ],
+  "nodes": [
+    { "id": "P0", "domain": "P", "label": "设定 project 维度", "method": "(context)", "path": "GET/POST /api/projects", "api": "project 维度(默认 default 或显式指定)", "role": "context", "summary": "所有带 project 的接口共有的前置:确定当前操作所属项目,贯穿全部业务域。默认项目为 default,也可 GET 枚举或 POST 创建后使用。", "produces": [], "consumes": [] },
+
+    { "id": "A1", "domain": "A", "label": "枚举项目", "method": "GET", "path": "/api/projects", "api": "GET /api/projects", "role": "read", "summary": "返回 {defaultProject, sharedBrain, projects:[{id,name,description,brainPath}]},用于切换/确认当前项目。", "produces": ["projectList"], "consumes": [] },
+    { "id": "A2", "domain": "A", "label": "创建项目", "method": "POST", "path": "/api/projects", "api": "POST /api/projects", "role": "write", "summary": "body:{id,name,description} 新建私有知识库项目,成功后该 project 维度可用。", "produces": ["project"], "consumes": [] },
+    { "id": "A3", "domain": "A", "label": "删除项目", "method": "DELETE", "path": "/api/projects/:id", "api": "DELETE /api/projects/:id", "role": "write", "summary": "删除指定项目及其知识库;default 项目禁止删除。", "produces": [], "consumes": ["project"] },
+
+    { "id": "B1", "domain": "B", "label": "上传源数据", "method": "POST", "path": "/api/source-upload", "api": "POST /api/source-upload", "role": "write", "summary": "上传 code/prd/requirement 源文件,触发解析,生成功能模块/API依赖等派生数据。后续 B2/B3/B4 与 J4 的数据源头。", "produces": ["sourceDoc", "wikiPage"], "consumes": ["project"] },
+    { "id": "B2", "domain": "B", "label": "解析功能模块", "method": "GET", "path": "/api/wiki-modules", "api": "GET /api/wiki-modules", "role": "read", "summary": "列出从上传源码解析出的功能模块,供测试用例生成时选择范围。", "produces": ["moduleList"], "consumes": ["sourceDoc"] },
+    { "id": "B3", "domain": "B", "label": "解析 API 依赖", "method": "GET", "path": "/api/wiki/api-deps", "api": "GET /api/wiki/api-deps", "role": "read", "summary": "列出模块间 API 调用依赖,可在图谱中聚焦某模块。", "produces": ["apiDepList"], "consumes": ["sourceDoc"] },
+    { "id": "B4", "domain": "B", "label": "API 依赖图谱", "method": "GET", "path": "/api/graph-data?mode=api", "api": "GET /api/graph-data", "role": "read", "summary": "力导向图形式呈现 API 依赖(来自源解析);mode=api。", "produces": ["apiGraph"], "consumes": ["sourceDoc"] },
+
+    { "id": "C1", "domain": "C", "label": "新建草稿", "method": "POST", "path": "/api/drafts", "api": "POST /api/drafts", "role": "write", "summary": "向缓冲层新增一条草稿(type 见 BRAIN_TYPE_MAP)。多种来源都会产生草稿:手工录入、生成用例(H2)、提议编辑(G4)、生成质量规则(J3)。", "produces": ["draft"], "consumes": ["project"] },
+    { "id": "C2", "domain": "C", "label": "列表草稿", "method": "GET", "path": "/api/drafts", "api": "GET /api/drafts", "role": "read", "summary": "分页列出草稿(支持 type/status 过滤),供选择/批量操作。", "produces": ["draftList"], "consumes": [] },
+    { "id": "C3", "domain": "C", "label": "获取草稿详情", "method": "GET", "path": "/api/drafts/:id", "api": "GET /api/drafts/:id", "role": "read", "summary": "读取单条草稿完整内容,编辑/校验前常先看详情。", "produces": [], "consumes": ["draft"] },
+    { "id": "C4", "domain": "C", "label": "编辑草稿", "method": "PUT", "path": "/api/drafts/:id", "api": "PUT /api/drafts/:id", "role": "write", "summary": "修改草稿内容/类型,编辑后通常再设状态(C5)。", "produces": [], "consumes": ["draft"] },
+    { "id": "C5", "domain": "C", "label": "设置草稿状态/评分", "method": "PUT", "path": "/api/drafts/:id/status", "api": "PUT /api/drafts/:id/status", "role": "write", "summary": "设置状态(pending/approved/...)及评分;approved 后方可入库。", "produces": [], "consumes": ["draft"] },
+    { "id": "C6", "domain": "C", "label": "删除单条草稿", "method": "DELETE", "path": "/api/drafts/:id", "api": "DELETE /api/drafts/:id", "role": "write", "summary": "删除指定草稿。", "produces": [], "consumes": ["draft"] },
+    { "id": "C7", "domain": "C", "label": "批量删除草稿", "method": "DELETE", "path": "/api/drafts", "api": "DELETE /api/drafts", "role": "write", "summary": "按条件批量删除草稿(终态或指定范围)。", "produces": [], "consumes": ["draftList"] },
+
+    { "id": "D1", "domain": "D", "label": "冲突检测", "method": "POST", "path": "/api/conflicts/detect", "api": "POST /api/conflicts/detect", "role": "write", "summary": "对 pending 草稿做冲突扫描,标出 conflict 状态草稿。是入库的硬前置。", "produces": ["conflict"], "consumes": ["draft"] },
+    { "id": "D2", "domain": "D", "label": "列出冲突", "method": "GET", "path": "/api/conflicts", "api": "GET /api/conflicts", "role": "read", "summary": "列出当前冲突项,供逐条/批量解决。", "produces": ["conflictList"], "consumes": ["conflict"] },
+    { "id": "D3", "domain": "D", "label": "解决单条冲突", "method": "PUT", "path": "/api/conflicts/:id/resolve", "api": "PUT /api/conflicts/:id/resolve", "role": "write", "summary": "决议 merge/overwrite/keep_both/discard,闭环回写 drafts 表并入库或置终态。解决后草稿才能入库。", "produces": [], "consumes": ["conflict"] },
+    { "id": "D4", "domain": "D", "label": "批量解决冲突", "method": "PUT", "path": "/api/conflicts/resolve-batch", "api": "PUT /api/conflicts/resolve-batch", "role": "write", "summary": "批量应用同一决议解决冲突,随后可批量入库(F2)。", "produces": [], "consumes": ["conflictList"] },
+
+    { "id": "E1", "domain": "E", "label": "质量门控评估", "method": "POST", "path": "/api/quality-gate/check", "api": "POST /api/quality-gate/check", "role": "read", "summary": "对草稿做质量评分(结构/可信度等),总分≥60 才达标;入库时也会再跑一次。", "produces": ["qualityResult"], "consumes": ["draft"] },
+
+    { "id": "F1", "domain": "F", "label": "单条入库", "method": "POST", "path": "/api/drafts/:id/commit", "api": "POST /api/drafts/:id/commit", "role": "write", "summary": "将单条 approved 草稿写入 Brain 知识库(再跑质量门控与冲突检查),状态转 merged。", "produces": ["brainPage", "audit"], "consumes": ["draft"] },
+    { "id": "F2", "domain": "F", "label": "批量入库", "method": "POST", "path": "/api/drafts/batch-commit", "api": "POST /api/drafts/batch-commit", "role": "write", "summary": "批量提交多条草稿到 Brain,逐条走质量门控;部分不达标则保留 pending 不悬挂。", "produces": ["brainPage", "audit", "stat"], "consumes": ["draftList"] },
+
+    { "id": "G1", "domain": "G", "label": "列出知识页", "method": "GET", "path": "/api/brain/pages", "api": "GET /api/brain/pages", "role": "read", "summary": "按分类列出已入库知识页(quality-rules/defect-rule/project-wiki/test-cases/test-scripts),入库后可见。", "produces": ["pageList"], "consumes": [] },
+    { "id": "G2", "domain": "G", "label": "读取知识页", "method": "GET", "path": "/api/brain/pages/:category/:id", "api": "GET /api/brain/pages/:category/:id", "role": "read", "summary": "读取单页正文与 frontmatter,编辑/删除前先看详情。", "produces": [], "consumes": ["brainPage"] },
+    { "id": "G3", "domain": "G", "label": "直改知识页", "method": "PUT", "path": "/api/brain/pages/:category/:id", "api": "PUT /api/brain/pages/:category/:id", "role": "write", "summary": "直接写盘修改知识页(兼容旧逻辑),记录审计。", "produces": [], "consumes": ["brainPage"] },
+    { "id": "G4", "domain": "G", "label": "提议编辑(自产草稿)", "method": "POST", "path": "/api/brain/pages/:category/:id/propose-edit", "api": "POST /api/brain/pages/:category/:id/propose-edit", "role": "write", "summary": "编辑已有页不再直写,而是生成两条草稿(A 知识修改 + B 质量规则),回流到草稿域(C)等待确认入库——这是优化的关键闭环。", "produces": ["draft", "draft"], "consumes": ["brainPage"] },
+    { "id": "G5", "domain": "G", "label": "列出私有页", "method": "GET", "path": "/api/brain/private-pages", "api": "GET /api/brain/private-pages", "role": "read", "summary": "列出待晋升到共享库的私有库页面。", "produces": ["privatePageList"], "consumes": [] },
+    { "id": "G6", "domain": "G", "label": "晋升共享库", "method": "POST", "path": "/api/brain/promote", "api": "POST /api/brain/promote", "role": "write", "summary": "将私有库页面晋升到共享库(shared_brain),跨项目复用,记录审计。", "produces": ["audit"], "consumes": ["privatePageList"] },
+    { "id": "G7", "domain": "G", "label": "删除单页", "method": "DELETE", "path": "/api/brain/pages/:category/:id", "api": "DELETE /api/brain/pages/:category/:id", "role": "write", "summary": "删除指定知识页(标准分类;defect_rule 只能经 BFF 回流删)。", "produces": [], "consumes": ["brainPage"] },
+    { "id": "G8", "domain": "G", "label": "批量删页", "method": "DELETE", "path": "/api/brain/pages", "api": "DELETE /api/brain/pages", "role": "write", "summary": "按分类/条件批量删除知识页。", "produces": [], "consumes": ["pageList"] },
+
+    { "id": "H1", "domain": "H", "label": "检索", "method": "POST", "path": "/api/search", "api": "POST /api/search", "role": "read", "summary": "在知识库中检索,为生成/复用提供上下文。", "produces": ["searchResult"], "consumes": [] },
+    { "id": "H2", "domain": "H", "label": "生成用例", "method": "POST", "path": "/api/generate-cases", "api": "POST /api/generate-cases", "role": "write", "summary": "基于源/范围生成自动化测试用例,结果以草稿(pending)形式落库——生成→沉淀闭环的起点。", "produces": ["draft"], "consumes": ["project", "moduleList", "searchResult"] },
+    { "id": "H3", "domain": "H", "label": "实体图谱", "method": "GET", "path": "/api/graph-data?mode=entity", "api": "GET /api/graph-data", "role": "read", "summary": "力导向图呈现实体节点与关系(来自实体抽取 J4);mode=entity。", "produces": ["entityGraph"], "consumes": ["brainPage"] },
+
+    { "id": "I1", "domain": "I", "label": "审计日志", "method": "GET", "path": "/api/audit-log", "api": "GET /api/audit-log", "role": "read", "summary": "返回 {success,data:{items:[...],total}},记录所有写操作的审计;入库/编辑/晋升均写审计。", "produces": [], "consumes": ["audit"] },
+    { "id": "I2", "domain": "I", "label": "统计", "method": "GET", "path": "/api/stats", "api": "GET /api/stats", "role": "read", "summary": "按分类统计知识库规模,入库后数字变化。", "produces": ["stat"], "consumes": [] },
+    { "id": "I3", "domain": "I", "label": "健康检查", "method": "GET", "path": "/api/health", "api": "GET /api/health", "role": "read", "summary": "探测服务存活,独立探针,无业务前置。", "produces": [], "consumes": [] },
+
+    { "id": "J1", "domain": "J", "label": "读AI配置", "method": "GET", "path": "/api/ai-settings", "api": "GET /api/ai-settings", "role": "read", "summary": "读取 AI 平台对接与 GBrain 大模型配置(ai/gbrain 段)。", "produces": ["aiConfig"], "consumes": [] },
+    { "id": "J2", "domain": "J", "label": "写AI配置", "method": "PUT", "path": "/api/ai-settings", "api": "PUT /api/ai-settings", "role": "write", "summary": "持久化 AI 配置到 data/ai_config.json,影响后续生成类操作。", "produces": [], "consumes": ["aiConfig"] },
+    { "id": "J3", "domain": "J", "label": "生成质量规则", "method": "POST", "path": "/api/generate-quality-rule", "api": "POST /api/generate-quality-rule", "role": "write", "summary": "基于差异/知识生成质量规则草稿,回流到草稿域(C)等待入库。", "produces": ["draft"], "consumes": ["aiConfig"] },
+    { "id": "J4", "domain": "J", "label": "实体抽取", "method": "POST", "path": "/api/wiki/:category/:id/extract-entities", "api": "POST /api/wiki/:category/:id/extract-entities", "role": "write", "summary": "对知识页(PRD/需求等)做确定性实体抽取,生成实体页沉淀进 project-wiki,供实体图谱(H3)。【来源:设计文档 §13.2,未列入 API-INTERFACE-DOC.md】", "produces": ["brainPage", "entityGraph"], "consumes": ["wikiPage"] }
+  ],
+  "edges": [
+    { "from": "P0", "to": "B1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "C1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "D1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "E1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "F1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "G1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "H1", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "H2", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "I2", "type": "context", "label": "项目维度前置" },
+    { "from": "P0", "to": "J4", "type": "context", "label": "项目维度前置" },
+
+    { "from": "A1", "to": "A2", "type": "sequence", "label": "枚举后创建(避免重复)" },
+    { "from": "A1", "to": "A3", "type": "sequence", "label": "枚举后删除" },
+    { "from": "A2", "to": "P0", "type": "produces", "label": "创建项目后该维度可用" },
+
+    { "from": "B1", "to": "B2", "type": "produces", "label": "上传后解析模块" },
+    { "from": "B1", "to": "B3", "type": "produces", "label": "上传后解析API依赖" },
+    { "from": "B1", "to": "B4", "type": "produces", "label": "上传后构建API图谱" },
+    { "from": "B3", "to": "B4", "type": "sequence", "label": "API依赖列表聚焦图谱" },
+    { "from": "B2", "to": "H2", "type": "sequence", "label": "选模块范围后生成用例" },
+    { "from": "B1", "to": "J4", "type": "produces", "label": "上传PRD后抽取实体" },
+
+    { "from": "C1", "to": "C2", "type": "sequence", "label": "创建后可在列表查看" },
+    { "from": "C1", "to": "C3", "type": "sequence", "label": "创建后读详情" },
+    { "from": "C1", "to": "C4", "type": "sequence", "label": "创建后编辑" },
+    { "from": "C1", "to": "C5", "type": "sequence", "label": "创建后设状态" },
+    { "from": "C1", "to": "C6", "type": "sequence", "label": "创建后删除" },
+    { "from": "C2", "to": "C7", "type": "sequence", "label": "列表选中后批量删除" },
+    { "from": "C3", "to": "C4", "type": "sequence", "label": "读详情后编辑" },
+    { "from": "C4", "to": "C5", "type": "sequence", "label": "编辑后设状态" },
+
+    { "from": "C1", "to": "D1", "type": "prereq", "label": "草稿存在才检测冲突" },
+    { "from": "C1", "to": "E1", "type": "prereq", "label": "草稿存在才评质量" },
+    { "from": "C1", "to": "F1", "type": "prereq", "label": "草稿存在才入库" },
+    { "from": "C1", "to": "F2", "type": "prereq", "label": "草稿存在才批量入库" },
+    { "from": "C2", "to": "E1", "type": "sequence", "label": "列表选中后评质量" },
+    { "from": "C5", "to": "F1", "type": "prereq", "label": "approved 后入库" },
+    { "from": "C5", "to": "F2", "type": "prereq", "label": "approved 后批量入库" },
+
+    { "from": "D1", "to": "D2", "type": "sequence", "label": "检测后列出冲突" },
+    { "from": "D1", "to": "D3", "type": "prereq", "label": "检测后解决单条" },
+    { "from": "D1", "to": "D4", "type": "prereq", "label": "检测后批量解决" },
+    { "from": "D2", "to": "D3", "type": "sequence", "label": "列出后取 id 解决" },
+    { "from": "D3", "to": "F1", "type": "prereq", "label": "解决冲突后才能单条入库" },
+    { "from": "D3", "to": "F2", "type": "prereq", "label": "解决冲突后才能批量入库" },
+    { "from": "D4", "to": "F2", "type": "prereq", "label": "批量解决后批量入库" },
+
+    { "from": "E1", "to": "F1", "type": "prereq", "label": "质量达标后入库" },
+    { "from": "E1", "to": "F2", "type": "prereq", "label": "质量达标后批量入库" },
+
+    { "from": "F1", "to": "G1", "type": "produces", "label": "入库生成知识页" },
+    { "from": "F1", "to": "G2", "type": "produces", "label": "入库后可读页面" },
+    { "from": "F1", "to": "I1", "type": "produces", "label": "入库写审计" },
+    { "from": "F1", "to": "I2", "type": "produces", "label": "入库改变统计" },
+    { "from": "F2", "to": "G1", "type": "produces", "label": "批量入库生成知识页" },
+    { "from": "F2", "to": "I1", "type": "produces", "label": "批量入库写审计" },
+    { "from": "F2", "to": "I2", "type": "produces", "label": "批量入库改变统计" },
+
+    { "from": "G1", "to": "G2", "type": "sequence", "label": "列表后读详情" },
+    { "from": "G2", "to": "G3", "type": "sequence", "label": "读详情后直改" },
+    { "from": "G2", "to": "G4", "type": "sequence", "label": "读详情后提议编辑" },
+    { "from": "G3", "to": "I1", "type": "produces", "label": "直改写审计" },
+    { "from": "G4", "to": "C1", "type": "produces", "label": "提议编辑回流生成草稿" },
+    { "from": "G4", "to": "C5", "type": "sequence", "label": "新草稿设状态" },
+    { "from": "G4", "to": "F1", "type": "sequence", "label": "新草稿入库" },
+    { "from": "G1", "to": "G5", "type": "sequence", "label": "列表私有页" },
+    { "from": "G5", "to": "G6", "type": "sequence", "label": "私有页晋升共享库" },
+    { "from": "G6", "to": "G1", "type": "produces", "label": "晋升后页面列表含共享库" },
+    { "from": "G6", "to": "I1", "type": "produces", "label": "晋升写审计" },
+    { "from": "G2", "to": "G7", "type": "sequence", "label": "读详情后删除" },
+    { "from": "G1", "to": "G8", "type": "sequence", "label": "列表后批量删" },
+
+    { "from": "H1", "to": "H2", "type": "sequence", "label": "检索上下文后生成" },
+    { "from": "H2", "to": "C1", "type": "produces", "label": "生成用例产出草稿" },
+    { "from": "H2", "to": "C5", "type": "sequence", "label": "新草稿设状态" },
+    { "from": "H2", "to": "F2", "type": "sequence", "label": "新草稿批量入库" },
+    { "from": "J4", "to": "H3", "type": "produces", "label": "实体抽取供实体图谱" },
+
+    { "from": "J1", "to": "J2", "type": "sequence", "label": "读配置后写配置" },
+    { "from": "J2", "to": "J3", "type": "sequence", "label": "配置后生成质量规则" },
+    { "from": "J3", "to": "C1", "type": "produces", "label": "生成质量规则产出草稿" },
+    { "from": "J3", "to": "F1", "type": "sequence", "label": "新草稿入库" },
+    { "from": "J4", "to": "G1", "type": "produces", "label": "抽取生成实体页" },
+    { "from": "J4", "to": "G2", "type": "produces", "label": "抽取后可读实体页" }
+  ],
+  "flows": [
+    { "id": "flow-setup", "name": "项目准备", "steps": ["A1", "A2", "P0"], "description": "枚举现有项目,按需创建新项目,确立后续操作的 project 维度。" },
+    { "id": "flow-ingest", "name": "源接入与图谱构建", "steps": ["P0", "B1", "B2", "B3", "B4"], "description": "上传源码/PRD/需求,派生功能模块、API 依赖,并以力导向图呈现。" },
+    { "id": "flow-draft", "name": "草稿创建与编辑", "steps": ["C1", "C3", "C4", "C5"], "description": "新建草稿后查看详情、编辑内容并设置状态/评分。" },
+    { "id": "flow-conflict", "name": "冲突检测→解决→单条入库", "steps": ["C1", "D1", "D2", "D3", "F1"], "description": "对草稿做冲突检测,逐条解决后单条入库,体现冲突是入库的硬前置。" },
+    { "id": "flow-batch", "name": "质量门控→批量入库→统计", "steps": ["C1", "E1", "F2", "G1", "I2"], "description": "先评质量,达标后批量入库,随后知识页可见、统计更新。" },
+    { "id": "flow-closed-loop", "name": "知识闭环(生成→沉淀→再检索)", "steps": ["H2", "C1", "D1", "D3", "F1", "G1", "H1"], "description": "生成用例→草稿→冲突解决→入库→知识页→检索,检索结果又可作为下一轮生成的输入,形成闭环。" },
+    { "id": "flow-propose-edit", "name": "编辑优化自产草稿闭环", "steps": ["G2", "G4", "C1", "F1"], "description": "对已有知识页提议编辑,系统生成两条草稿回流到草稿域,确认后入库——人工优化的关键闭环。" },
+    { "id": "flow-promote", "name": "晋升共享库", "steps": ["G1", "G5", "G6"], "description": "列出私有页并晋升到共享库,实现跨项目复用。" },
+    { "id": "flow-entity", "name": "实体抽取闭环", "steps": ["B1", "J4", "G1", "H3"], "description": "上传 PRD 后做实体抽取生成实体页,再以实体图谱可视化。" },
+    { "id": "flow-ai-rule", "name": "AI 生成质量规则", "steps": ["J1", "J2", "J3", "C1", "F1"], "description": "配置 AI 后生成质量规则草稿,回流入库。" },
+    { "id": "flow-audit", "name": "审计与统计验证", "steps": ["F2", "I1", "I2"], "description": "以批量入库为触发,验证审计日志与统计随写操作更新。" },
+    { "id": "flow-health", "name": "健康检查(独立探针)", "steps": ["I3"], "description": "独立探测服务存活,无业务前置,可作为测试套件的前置探活。" }
+  ]
+}

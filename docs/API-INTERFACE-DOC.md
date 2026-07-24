@@ -1033,6 +1033,39 @@ curl "http://localhost:3000/api/graph-data?mode=entity&project=default"  # 项�
 
 ---
 
+### GET /api/business-graph
+
+**功能**：返回业务步骤节点、依赖边与可测试场景（meta / domains / nodes / edges / flows），供网页力导向图渲染，以及业务前端（testcase-gen-frontend）在生成测试用例时获取业务上下文。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/business-graph?project=default"
+```
+
+**响应示例**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "meta": { "title": "业务流程与依赖知识图谱", "version": "1.0" },
+    "domains": [ { "id": "A", "name": "项目生命周期", "color": "#f59e0b" } ],
+    "nodes": [ { "id": "C1", "domain": "C", "title": "创建草稿", "method": "POST", "path": "/api/drafts", "api": "POST /api/drafts", "role": "write", "summary": "…", "produces": ["draft"], "consumes": ["project"] } ],
+    "edges": [ { "from": "C1", "to": "F1", "type": "sequence", "label": "提交" } ],
+    "flows": [ { "id": "flow-commit", "name": "单条入库", "description": "…", "steps": ["C1","F1"] } ]
+  }
+}
+```
+
+**注**：`project-wiki/business-flows.json` 未入库时 `data` 为 `null`。
+
+---
+
 ## 11.5 AI 平台对接（AI Adapter）
 
 知识库侧 AI 平台适配器，**对齐 testcase-gen-frontend 系统设置**设计：codebuddy / openai / none 三通道，配置持久化于 `data/ai_config.json`（env 种子 + 文件热更新）。`generate-quality-rule` 服务于设计“链路 3a 人工编辑优化”——由人工编辑前后内容生成质量规则：优先调用 AI 提炼，未配置 AI 或调用失败时回退确定性 diff 拼装（difflib，稳定可离线）。

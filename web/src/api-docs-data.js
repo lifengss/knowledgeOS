@@ -700,6 +700,27 @@ curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "no
   }
 }`,
           notes: 'project-wiki 不存在时返回空节点/边。'
+        },
+        {
+          method: 'GET',
+          path: '/api/business-graph',
+          summary: '获取业务流程与依赖知识图谱',
+          description: '返回业务步骤节点、依赖边与可测试场景（meta/domains/nodes/edges/flows），供网页力导向图渲染，及业务前端（testcase-gen-frontend）生成测试用例时获取业务上下文。',
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' }
+          ],
+          requestExample: 'curl "{BASE}/business-graph?project=default"',
+          responseExample: `{
+  "success": true,
+  "data": {
+    "meta": { "title": "业务流程与依赖知识图谱", "version": "1.0" },
+    "domains": [ { "id": "A", "name": "项目生命周期", "color": "#f59e0b" } ],
+    "nodes": [ { "id": "C1", "domain": "C", "title": "创建草稿", "method": "POST", "path": "/api/drafts", "api": "POST /api/drafts", "role": "write", "summary": "…", "produces": ["draft"], "consumes": ["project"] } ],
+    "edges": [ { "from": "C1", "to": "F1", "type": "sequence", "label": "提交" } ],
+    "flows": [ { "id": "flow-commit", "name": "单条入库", "description": "…", "steps": ["C1","F1"] } ]
+  }
+}`,
+          notes: 'business-flows.json 未入库（project-wiki 下无该文件）时 data 为 null。'
         }
       ]
     },

@@ -1653,6 +1653,25 @@ app.delete('/api/brain/pages', async (req, res) => {
 // ---------------------------------------------------------------
 
 // GET /api/graph-data - 获取图谱节点和边数据
+// ---------------------------------------------------------------
+// 业务流程与依赖知识图谱 (Business Flow Graph)
+// GET /api/business-graph - 返回业务步骤/依赖/场景，供网页渲染与业务前端生成用例时取上下文
+// ---------------------------------------------------------------
+app.get('/api/business-graph', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
+    const p = path.join(brainRepo, 'project-wiki', 'business-flows.json');
+    if (!fs.existsSync(p)) {
+      return res.json({ success: true, data: null });
+    }
+    const data = JSON.parse(readTextFile(p));
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/graph-data', async (req, res) => {
   try {
     const pid = resolveProject(req);
