@@ -65,6 +65,11 @@ function onProjectChange(pid) {
   graphState.focusNode = null;
   // 分页回到第一页，避免沿用其他项目的页码
   pages = { drafts: 1, conflicts: 1, brain: 1 };
+  // 知识库页面列表按项目缓存，切换项目必须清空，否则会停留在上一项目的页面
+  // （详情接口会按新项目重新拉取，导致"Page not found"）
+  appState.brainLoaded = false;
+  appState.brainPages = [];
+  appState.selectedBrain.clear();
   updateProjectLabel();
   renderPage(location.hash.slice(1) || 'overview');
   if (location.hash.slice(1) === 'wiki') loadWikiIndex();
@@ -75,8 +80,9 @@ async function refreshBadges() {
   try {
     const d = await apiGet('/drafts?limit=1000');
     if (d.success) {
+      const pending = d.data.filter(x => x.status === 'pending').length;
       const el = document.getElementById('draft-badge');
-      if (el) el.textContent = d.data.length;
+      if (el) el.textContent = pending;
     }
     const c = await apiGet('/conflicts');
     if (c.success) {
@@ -121,6 +127,55 @@ async function apiPost(endpoint, body) {
     body: JSON.stringify(projectBody(body))
   });
   return res.json();
+}
+
+// ---------- 全局非阻塞通知 / 进度系统 ----------
+// 固定在右下角，不拦截页面其它操作；长耗时操作用 showProgress 展示不确定进度，
+// 普通提示用 showToast（info/success/warning/error，自动消失）。
+let _toastSeq = 0;
+function ensureToastContainer() {
+  let c = document.getElementById('toast-container');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = 'toast-container';
+    document.body.appendChild(c);
+  }
+  return c;
+}
+function showToast({ message, type = 'info', duration = 3200 }) {
+  const c = ensureToastContainer();
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '!' : 'ℹ';
+  el.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg"></span>`;
+  el.querySelector('.toast-msg').textContent = message;
+  c.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('toast-show'));
+  const remove = () => { el.classList.remove('toast-show'); setTimeout(() => el.remove(), 250); };
+  if (duration > 0) setTimeout(remove, duration);
+  el.addEventListener('click', remove);
+}
+function showProgress({ title = '处理中', message = '' }) {
+  const c = ensureToastContainer();
+  const el = document.createElement('div');
+  el.className = 'toast toast-progress';
+  el.innerHTML = '<span class="toast-spinner"></span><div class="toast-prog-body"><div class="toast-prog-title"></div><div class="toast-prog-msg"></div></div>';
+  el.querySelector('.toast-prog-title').textContent = title;
+  el.querySelector('.toast-prog-msg').textContent = message;
+  c.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('toast-show'));
+  return {
+    update(msg) { const m = el.querySelector('.toast-prog-msg'); if (m && msg != null) m.textContent = msg; },
+    done(msg, type = 'success') {
+      const body = el.querySelector('.toast-prog-body');
+      if (body) body.innerHTML = `<div class="toast-prog-title">${type === 'success' ? '✓ ' : ''}${escapeHtml(title)}</div><div class="toast-prog-msg">${escapeHtml(msg || '')}</div>`;
+      el.classList.remove('toast-progress'); el.classList.add('toast-' + type);
+      const sp = el.querySelector('.toast-spinner'); if (sp) sp.remove();
+      setTimeout(() => { el.classList.remove('toast-show'); setTimeout(() => el.remove(), 250); }, 3000);
+    },
+    fail(msg) { this.done(msg, 'error'); },
+    remove() { el.classList.remove('toast-show'); setTimeout(() => el.remove(), 250); }
+  };
 }
 
 async function apiPut(endpoint, body) {
@@ -195,6 +250,7 @@ let appState = {
   conflicts: [],
   auditLogs: [],
   brainPages: [],
+  brainLoaded: false,
   stats: {},
   loading: false,
   auditPage: 1,
@@ -209,7 +265,8 @@ let appState = {
     brain: { page: 1, size: 20 }
   },
   auditSize: 20,
-  brainFilter: { category: 'all', kw: '' }
+  brainFilter: { category: 'all', kw: '' },
+  brainSort: { key: 'id', dir: 'asc' }
 };
 
 // ---------------------------------------------------------------
@@ -228,7 +285,7 @@ const pageTemplates = {
         <div class="grid">
           <div class="card"><h3>知识库页面</h3><div class="value">${stats.totalPages || 0}</div></div>
           <div class="card"><h3>待审核草稿</h3><div class="value">${stats.pendingDrafts || 0}</div><div class="trend">需尽快处理</div></div>
-          <div class="card"><h3>待处理冲突</h3><div class="value">${stats.pendingConflicts || 0}</div><div class="trend">需人工决策</div></div>
+          <div class="card"><h3>待处理冲突</h3><div class="value">${stats.totalConflicts || 0}</div><div class="trend">需人工决策</div></div>
           <div class="card"><h3>质量规则</h3><div class="value">${stats.totalRules || 0}</div></div>
           <div class="card"><h3>历史用例</h3><div class="value">${stats.totalCases || 0}</div></div>
           <div class="card"><h3>缺陷经验</h3><div class="value">${stats.totalDefects || 0}</div></div>
@@ -254,8 +311,14 @@ const pageTemplates = {
 
   brain: async () => {
     try {
-      const res = await apiGet('/brain/pages?limit=1000');
-      const pages = res.success ? res.data : [];
+      let pages;
+      if (!appState.brainLoaded) {
+        const res = await apiGet('/brain/pages?limit=1000');
+        pages = res.success ? res.data : [];
+        appState.brainLoaded = true;
+      } else {
+        pages = appState.brainPages || [];
+      }
       appState.brainPages = pages;
 
       // 应用分类 + 关键词筛选
@@ -267,6 +330,15 @@ const pageTemplates = {
         return true;
       });
 
+      // 表头排序
+      const sort = appState.brainSort;
+      filtered.sort((a, b) => {
+        let av = (a[sort.key] == null ? '' : String(a[sort.key])).toLowerCase();
+        let bv = (b[sort.key] == null ? '' : String(b[sort.key])).toLowerCase();
+        if (av < bv) return -1; if (av > bv) return 1; return 0;
+      });
+      if (sort.dir === 'desc') filtered.reverse();
+
       // 客户端分页
       const pager = appState.pager.brain;
       const totalPages = Math.max(1, Math.ceil(filtered.length / pager.size));
@@ -276,10 +348,20 @@ const pageTemplates = {
       const brainAllChecked = pageItems.length > 0 && pageItems.every(p => appState.selectedBrain.has(p.id));
       const brainSelCount = appState.selectedBrain.size;
 
+      // 分类筛选下拉选项（基于当前全部页面去重）
+      const cats = [...new Set(pages.map(p => p.category))].sort();
+      const catOpts = ['<option value="all">全部</option>']
+        .concat(cats.map(c => `<option value="${escapeHtml(c)}" ${f.category === c ? 'selected' : ''}>${escapeHtml(c)}</option>`))
+        .join('');
+
       return `
         <div class="search-bar">
-          <input type="text" id="brain-search" placeholder="搜索知识库页面..." value="${escapeHtml(f.kw || '')}" oninput="searchBrain()">
+          <input type="text" id="brain-search" placeholder="搜索知识库页面..." value="${escapeHtml(f.kw || '')}" onkeydown="if(event.key==='Enter'){event.preventDefault();searchBrain();}">
+          <button class="btn btn-primary btn-sm" onclick="searchBrain()">搜索</button>
+          ${f.kw ? '<button class="btn btn-ghost btn-sm" onclick="clearBrainSearch()">清除</button>' : ''}
           <button class="btn btn-secondary btn-sm" onclick="openPromoteModal()">晋升共享库</button>
+          <button class="btn btn-primary btn-sm" onclick="openCreatePageModal()">新增条目</button>
+          <button class="btn btn-secondary btn-sm" onclick="openBatchCreateModal()">批量增加</button>
         </div>
         <div class="tabs">
           <div class="tab ${f.category === 'all' ? 'active' : ''}" onclick="filterBrain('all')">全部</div>
@@ -291,12 +373,13 @@ const pageTemplates = {
         </div>
         <div class="batch-bar">
           <button class="btn btn-danger btn-sm" onclick="batchDeleteBrain()" ${brainSelCount ? '' : 'disabled'}>批量删除${brainSelCount ? `(${brainSelCount})` : ''}</button>
+          <button class="btn btn-primary btn-sm" onclick="openExportModal()" ${brainSelCount ? '' : 'disabled'}>导出${brainSelCount ? `(${brainSelCount})` : ''}</button>
           <span class="sel-count">已选 ${brainSelCount} 项</span>
           ${brainSelCount ? '<button class="btn btn-ghost btn-sm" onclick="clearSelection(\'brain\')">清空选择</button>' : ''}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th style="width:36px;"><input type="checkbox" ${brainAllChecked ? 'checked' : ''} onchange="toggleSelectAll('brain', this.checked)"></th><th>ID</th><th>标题</th><th>分类</th><th>预览</th><th>操作</th></tr></thead>
+            <thead><tr><th style="width:36px;"><input type="checkbox" ${brainAllChecked ? 'checked' : ''} onchange="toggleSelectAll('brain', this.checked)"></th><th class="sortable" onclick="sortBrain('id')">ID${sortIndicator('id')}</th><th class="sortable" onclick="sortBrain('title')">标题${sortIndicator('title')}</th><th class="sortable" onclick="sortBrain('category')">分类${sortIndicator('category')}<br><select class="col-filter" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" onchange="filterBrain(this.value)">${catOpts}</select></th><th class="sortable" onclick="sortBrain('preview')">预览${sortIndicator('preview')}</th><th>操作</th></tr></thead>
             <tbody id="brain-table">
               ${pageItems.map(p => `
                 <tr>
@@ -306,7 +389,7 @@ const pageTemplates = {
                   <td>${p.category}</td>
                   <td>${p.preview.slice(0, 60)}...</td>
                   <td>
-                    <button class="btn btn-secondary btn-sm" onclick="editBrainPage('${p.category}', '${p.id}', ()=>renderPage('brain'))">编辑</button>
+                    <button class="btn btn-secondary btn-sm" onclick="editBrainPage('${p.category}', '${p.id}', ()=>refreshBrain())">编辑</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteBrainPage('${p.category}', '${p.id}')">删除</button>
                   </td>
                 </tr>
@@ -352,7 +435,7 @@ const pageTemplates = {
 
       return `
         <div class="section">
-          <h3 class="section-title">待入库草稿（${visibleDrafts.length}）</h3>
+          <h3 class="section-title">待入库草稿（${pendingCount}）</h3>
           <div class="table-wrap">
             <table>
               <thead><tr><th style="width:36px;"><input type="checkbox" ${draftAllChecked ? 'checked' : ''} onchange="toggleSelectAll('drafts', this.checked)"></th><th>ID</th><th>来源</th><th>类型</th><th>标题</th><th>评分</th><th>创建时间</th><th>状态</th><th>操作</th></tr></thead>
@@ -365,7 +448,7 @@ const pageTemplates = {
                     <td>${typeLabel(d.type)}</td>
                     <td><a href="#" onclick="showDraftDetail('${d.id}');return false;">${d.title}</a></td>
                     <td>${d.qualityScore !== null && d.qualityScore !== undefined ? `<span style="font-weight:600;color:${d.qualityScore >= 60 ? 'var(--success)' : d.qualityScore >= 40 ? 'var(--warning)' : 'var(--danger)'}">${d.qualityScore}</span>` : '-'}</td>
-                    <td>${d.created_at || '-'}</td>
+                    <td>${d.createdAt || '-'}</td>
                     <td><span class="tag tag-${d.status}">${d.status}</span></td>
                     <td>
                       <button class="btn btn-secondary btn-sm" onclick="editDraft('${d.id}', ()=>renderPage('drafts'))">编辑</button>
@@ -644,7 +727,7 @@ const pageTemplates = {
               <tbody>
                 ${logs.map(a => `
                   <tr>
-                    <td>${a.createdAt || '-'}</td>
+                    <td>${a.created_at || '-'}</td>
                     <td><span class="tag tag-${a.action === 'commit' ? 'merged' : a.action === 'reject' ? 'danger' : 'pending'}">${actionLabel(a.action)}</span></td>
                     <td>${a.operator || 'system'}</td>
                     <td>${a.target || '-'}</td>
@@ -671,12 +754,14 @@ const pageTemplates = {
 
   quality: async () => {
     try {
-      const [draftsRes, statsRes] = await Promise.all([
-        apiGet('/drafts?limit=200'),
-        apiGet('/stats')
-      ]);
-      const drafts = draftsRes.success ? draftsRes.data : [];
-      const stats = statsRes.success ? statsRes.data : {};
+  const [draftsRes, statsRes, brainRes] = await Promise.all([
+    apiGet('/drafts?limit=200'),
+    apiGet('/stats'),
+    apiGet('/brain/pages?limit=1000')
+  ]);
+  const drafts = draftsRes.success ? draftsRes.data : [];
+  const stats = statsRes.success ? statsRes.data : {};
+  const brainPages = brainRes.success ? brainRes.data : [];
 
       // 质量评分分布
       const scoreBuckets = { '0-39': 0, '40-59': 0, '60-79': 0, '80-100': 0 };
@@ -722,16 +807,24 @@ const pageTemplates = {
         </div>
       `).join('');
 
-      // 类型覆盖率
-      const typeCounts = {};
-      drafts.forEach(d => { typeCounts[d.type] = (typeCounts[d.type] || 0) + 1; });
-      const typeLabels = { quality_rule: '质量规则', test_case: '测试用例', defect_experience: '缺陷经验', project_wiki: '项目 Wiki', test_script: '自动化脚本' };
-      const coverageHtml = Object.entries(typeCounts).map(([t, count]) => `
+      // 类型覆盖：与「知识库浏览」保持一致，按已发布 Brain 页面分类统计
+      // （避免与草稿类型混淆，并修复 test_script / automation_script 等同义类型被拆成中英两条的问题）
+      const catLabels = {
+        'quality-rules': '质量规则',
+        'defect-experience': '缺陷经验',
+        'defect_rule': '缺陷规则',
+        'project-wiki': '项目 Wiki',
+        'test-cases': '测试用例',
+        'test-scripts': '自动化脚本'
+      };
+      const catCounts = {};
+      brainPages.forEach(p => { const c = p.category || 'other'; catCounts[c] = (catCounts[c] || 0) + 1; });
+      const coverageHtml = Object.keys(catLabels).map(cat => `
         <div class="card" style="padding:14px;text-align:center;">
-          <div style="font-size:24px;font-weight:600;color:var(--primary);">${count}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${typeLabels[t] || t}</div>
+          <div style="font-size:24px;font-weight:600;color:var(--primary);">${catCounts[cat] || 0}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${catLabels[cat]}</div>
         </div>
-      `).join('');
+      `).join('') || '<div class="empty">暂无数据</div>';
 
       return `
         <div class="section">
@@ -770,8 +863,8 @@ const pageTemplates = {
     try {
       const [statsRes, auditRes, brainRes] = await Promise.all([
         apiGet('/stats'),
-        apiGet('/audit-log?limit=50'),
-        apiGet('/brain/pages?limit=200')
+        apiGet('/audit-log?pageSize=200'),
+        apiGet('/brain/pages?limit=1000')
       ]);
       const s = statsRes.success ? statsRes.data : {};
       const auditItems = auditRes.success ? (auditRes.data.items || []) : [];
@@ -785,7 +878,7 @@ const pageTemplates = {
         dayMap[d.toISOString().slice(0, 10)] = { commit: 0, search: 0, conflict: 0 };
       }
       auditItems.forEach(a => {
-        const day = (a.createdAt || '').slice(0, 10);
+        const day = (a.created_at || '').slice(0, 10);
         if (!dayMap[day]) return;
         if (a.action === 'commit') dayMap[day].commit++;
         else if (a.action === 'search') dayMap[day].search++;
@@ -809,13 +902,17 @@ const pageTemplates = {
         `;
       }).join('');
 
-      // Brain 页面分类统计
+      // Brain 页面分类统计（与知识库浏览一致，使用中文分类名）
+      const brainCatLabels = {
+        'quality-rules': '质量规则', 'defect-experience': '缺陷经验', 'defect_rule': '缺陷规则',
+        'project-wiki': '项目 Wiki', 'test-cases': '测试用例', 'test-scripts': '自动化脚本'
+      };
       const brainCats = {};
       brainPages.forEach(p => { brainCats[p.category] = (brainCats[p.category] || 0) + 1; });
       const brainStatHtml = Object.entries(brainCats).map(([cat, count]) => `
         <div class="card" style="padding:14px;text-align:center;">
           <div style="font-size:22px;font-weight:600;">${count}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${cat}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${brainCatLabels[cat] || cat}</div>
         </div>
       `).join('');
 
@@ -1078,7 +1175,7 @@ async function deleteBrainPage(category, id) {
     } else {
       alert(`删除失败: ${res.error}`);
     }
-    renderPage('brain');
+    refreshBrain();
   } catch (err) {
     alert('删除失败: ' + err.message);
   }
@@ -1098,9 +1195,161 @@ async function batchDeleteBrain() {
     } else {
       alert(`删除失败: ${res.error}`);
     }
-    renderPage('brain');
+    refreshBrain();
   } catch (err) {
     alert('删除失败: ' + err.message);
+  }
+}
+
+// ===== 知识库页面导出 =====
+// 导出格式：jira(Jira+Xray 兼容 CSV，推荐) / markdown(合并) / csv(通用) / excel(.xls)
+function tsStamp() {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+}
+
+// 取回选中条目的完整正文（复用已有详情接口 /api/brain/pages/:category/:id）
+async function fetchSelectedBrainPages() {
+  const sel = appState.selectedBrain;
+  const matched = appState.brainPages.filter(p => sel.has(p.id));
+  const rows = [];
+  for (const p of matched) {
+    let body = p.body || p.preview || '';
+    try {
+      const res = await apiGet(`/brain/pages/${encodeURIComponent(p.category)}/${encodeURIComponent(p.id)}`);
+      if (res && res.success && res.data) body = res.data.body || res.data.content || body;
+    } catch (e) { /* 回退到列表 preview */ }
+    rows.push({ id: p.id, title: p.title || p.id, category: p.category, preview: p.preview || '', body: body });
+  }
+  return rows;
+}
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// CSV 单元格转义（引号/逗号/换行），并优先加 UTF-8 BOM 便于 Excel 识别中文
+function csvEscape(v) {
+  const s = (v == null ? '' : String(v));
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+// 从 Markdown 正文尝试提取测试步骤，输出 Xray Manual Test Steps 的 JSON 数组
+function extractJiraSteps(md) {
+  const empty = [{ index: 1, fields: { Action: '', Data: '', 'Expected Result:': '' } }];
+  if (!md) return JSON.stringify(empty);
+  const lines = md.split(/\r?\n/);
+  const steps = [];
+  let idx = 0;
+  const reStep = /^\s*(?:\d+[.、)）]|\*{0,2}\s*步骤\s*\d+\s*\*{0,2})\s*[:：]?\s*(.*)$/i;
+  for (const line of lines) {
+    const m = line.match(reStep);
+    if (!m) continue;
+    let text = m[1].trim();
+    if (!text) continue;
+    let expected = '';
+    const em = text.match(/(?:预期结果|期望结果|预期|expected\s*result)\s*[:：]\s*(.+)$/i);
+    if (em) { expected = em[1].trim(); text = text.slice(0, em.index).trim(); }
+    idx++;
+    steps.push({ index: idx, fields: { Action: text, Data: '', 'Expected Result': expected } });
+  }
+  if (!steps.length) {
+    steps.push({ index: 1, fields: { Action: md.replace(/\s+/g, ' ').slice(0, 2000), Data: '', 'Expected Result': '' } });
+  }
+  return JSON.stringify(steps);
+}
+
+function exportJiraCsv(rows) {
+  const headers = ['Summary', 'Issue Type', 'Test Type', 'Description', 'Manual Test Steps', 'Labels'];
+  const lines = [headers.join(',')];
+  for (const r of rows) {
+    const cells = [r.title, 'Test', 'Manual', r.body, extractJiraSteps(r.body), r.category];
+    lines.push(cells.map(csvEscape).join(','));
+  }
+  downloadBlob('﻿' + lines.join('\r\n'), `jira-testcases-${tsStamp()}.csv`, 'text/csv;charset=utf-8');
+}
+
+function exportGenericCsv(rows) {
+  const headers = ['id', 'title', 'category', 'preview', 'body'];
+  const lines = [headers.join(',')];
+  for (const r of rows) lines.push(headers.map(h => csvEscape(r[h])).join(','));
+  downloadBlob('﻿' + lines.join('\r\n'), `knowledge-export-${tsStamp()}.csv`, 'text/csv;charset=utf-8');
+}
+
+function exportMarkdown(rows) {
+  const blocks = rows.map(r => `# ${r.title}\n\n> 分类: ${r.category}  |  ID: ${r.id}\n\n${r.body || '(无正文)'}`);
+  downloadBlob(blocks.join('\n\n---\n\n'), `knowledge-export-${tsStamp()}.md`, 'text/markdown;charset=utf-8');
+}
+
+function exportExcel(rows) {
+  const headers = ['id', 'title', 'category', 'preview', 'body'];
+  const esc = v => escapeHtml(String(v == null ? '' : v)).replace(/\n/g, '<br>');
+  let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"></head><body><table border="1">';
+  html += '<tr>' + headers.map(h => `<th>${escapeHtml(h)}</th>`).join('') + '</tr>';
+  for (const r of rows) html += '<tr>' + headers.map(h => `<td>${esc(r[h])}</td>`).join('') + '</tr>';
+  html += '</table></body></html>';
+  downloadBlob(html, `knowledge-export-${tsStamp()}.xls`, 'application/vnd.ms-excel');
+}
+
+function openExportModal() {
+  const sel = appState.selectedBrain;
+  if (!sel || !sel.size) { alert('请先勾选要导出的条目'); return; }
+  const n = sel.size;
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:480px;">
+      <div class="modal-header">
+        <h3>导出选中条目 (${n})</h3>
+        <button class="btn btn-secondary btn-sm" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-muted);font-size:13px;margin:0 0 14px;">导出范围为当前勾选的 ${n} 条知识库页面。选择导出格式：</p>
+        <div class="export-options">
+          <label class="export-opt"><input type="radio" name="expfmt" value="jira" checked>
+            <span><b>Jira 兼容格式</b> <span class="rec-badge">推荐</span><br>
+            <small>CSV（Xray Test Case Importer 布局：Summary / Issue Type / Test Type / Description / Manual Test Steps / Labels），可直接导入 Jira + Xray。</small></span>
+          </label>
+          <label class="export-opt"><input type="radio" name="expfmt" value="markdown">
+            <span><b>Markdown</b><br><small>所有选中条目合并为一个 .md 文件。</small></span>
+          </label>
+          <label class="export-opt"><input type="radio" name="expfmt" value="csv">
+            <span><b>CSV（通用）</b><br><small>id / title / category / preview / body 通用表格。</small></span>
+          </label>
+          <label class="export-opt"><input type="radio" name="expfmt" value="excel">
+            <span><b>Excel</b><br><small>.xls（HTML 表格，Excel 可直接打开，无需额外依赖）。</small></span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">取消</button>
+        <button class="btn btn-primary" id="export-confirm-btn" onclick="confirmExport()">导出</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function confirmExport() {
+  const fmt = (document.querySelector('input[name="expfmt"]:checked') || {}).value || 'jira';
+  const btn = document.getElementById('export-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '导出中…'; }
+  try {
+    const rows = await fetchSelectedBrainPages();
+    if (!rows.length) { alert('没有可导出的数据'); return; }
+    if (fmt === 'jira') exportJiraCsv(rows);
+    else if (fmt === 'markdown') exportMarkdown(rows);
+    else if (fmt === 'csv') exportGenericCsv(rows);
+    else if (fmt === 'excel') exportExcel(rows);
+    document.querySelector('.modal-overlay')?.remove();
+  } catch (e) {
+    alert('导出失败: ' + (e && e.message ? e.message : e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '导出'; }
   }
 }
 
@@ -1300,9 +1549,12 @@ async function showConflictDetail(id) {
 
 // ===== 通用编辑器模态框 =====
 // openEditModal: 打开一个标题(可选)+正文编辑器，保存时回调 onSave({title, content})
-function openEditModal({ title = '编辑', initialTitle = '', initialContent = '', showTitle = true, saveLabel = '保存', onSave, onSaved }) {
+function openEditModal({ title = '编辑', initialTitle = '', initialContent = '', showTitle = true, saveLabel = '保存', category, categories, onSave, onSaved }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
+  const categoryOptionsHtml = (categories && categories.length)
+    ? `<div class="edit-field"><label>分类</label><select class="edit-category">${categories.map(c => `<option value="${escapeHtml(c)}" ${c === (category || '') ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}</select></div>`
+    : '';
   overlay.innerHTML = `
     <div class="modal-box edit-modal">
       <div class="modal-header">
@@ -1311,6 +1563,7 @@ function openEditModal({ title = '编辑', initialTitle = '', initialContent = '
       </div>
       <div class="modal-body">
         ${showTitle ? `<div class="edit-field"><label>标题</label><input type="text" class="edit-title" value="${escapeHtml(initialTitle)}" /></div>` : ''}
+        ${categoryOptionsHtml}
         <div class="edit-field">
           <label>内容 (Markdown)</label>
           <textarea class="edit-content" rows="18" placeholder="支持 Markdown 语法…">${escapeHtml(initialContent)}</textarea>
@@ -1334,6 +1587,8 @@ function openEditModal({ title = '编辑', initialTitle = '', initialContent = '
       content: ta.value,
     };
     if (showTitle) payload.title = overlay.querySelector('.edit-title').value;
+    const catSel = overlay.querySelector('.edit-category');
+    if (catSel) payload.category = catSel.value;
     const btn = overlay.querySelector('.edit-save');
     btn.disabled = true;
     btn.textContent = '保存中…';
@@ -1352,7 +1607,7 @@ function openEditModal({ title = '编辑', initialTitle = '', initialContent = '
 }
 
 // openViewModal: 以弹窗形式查看正文，可选 onEdit 在弹窗内触发编辑（统一为弹窗交互）
-function openViewModal({ title = '查看', content = '', onEdit }) {
+function openViewModal({ title = '查看', content = '', html, onEdit }) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
@@ -1362,7 +1617,7 @@ function openViewModal({ title = '查看', content = '', onEdit }) {
         <button class="modal-close" aria-label="关闭">×</button>
       </div>
       <div class="modal-body">
-        <pre class="view-content">${escapeHtml(content)}</pre>
+        ${html ? `<div class="view-content md wiki-md">${html}</div>` : `<pre class="view-content">${escapeHtml(content)}</pre>`}
       </div>
       <div class="modal-footer">
         ${typeof onEdit === 'function' ? '<button class="btn btn-secondary view-edit">编辑</button>' : ''}
@@ -1401,20 +1656,28 @@ async function editBrainPage(category, id, refreshFn) {
   const res = await apiGet(`/brain/pages/${encodeURIComponent(category)}/${encodeURIComponent(id)}`);
   if (!res.success) { alert('加载页面失败: ' + res.error); return; }
   const data = res.data;
+  let chosenCategory = category;
   openEditModal({
     title: '编辑知识页面',
     initialTitle: '',
     initialContent: data.content || '',
     showTitle: false,
+    category: category,
+    categories: BRAIN_CATEGORIES,
     saveLabel: '提交修改(进草稿箱)',
-    onSave: async ({ content }) => {
-      const r = await apiPost(`/brain/pages/${encodeURIComponent(category)}/${encodeURIComponent(id)}/propose-edit`, { content, repo: data.repo });
+    onSave: async ({ content, category: selectedCategory }) => {
+      chosenCategory = selectedCategory || category;
+      const body = { content, repo: data.repo };
+      if (chosenCategory !== category) body.category = chosenCategory;
+      const r = await apiPost(`/brain/pages/${encodeURIComponent(category)}/${encodeURIComponent(id)}/propose-edit`, body);
       if (!r.success) throw new Error(r.error || '提交失败');
       return r.data;
     },
     onSaved: (saved) => {
       const hasRule = saved && saved.ruleDraftId;
-      alert('已生成编辑草稿' + (hasRule ? '与质量规则草稿' : '') + '，请到「草稿箱」确认入库。\n知识条目将在确认后写回原仓库，质量规则将沉淀至质量规则库。');
+      const reclassified = chosenCategory !== category;
+      const dest = reclassified ? `「${chosenCategory}」分类` : '原仓库';
+      alert('已生成编辑草稿' + (hasRule ? '与质量规则草稿' : '') + '，请到「草稿箱」确认入库。\n知识条目将在确认后' + (reclassified ? '从「' + category + '」移动至' : '写回') + dest + '，原分类下的旧文件将被删除；质量规则将沉淀至质量规则库。');
       if (typeof refreshFn === 'function') refreshFn();
     },
   });
@@ -1481,12 +1744,14 @@ async function showDraftDetail(id) {
 
 async function showPageDetail(category, id, returnPage = 'brain') {
   try {
-    const res = await apiGet(`/brain/pages/${category}/${id}`);
+    const res = await apiGet(`/brain/pages/${encodeURIComponent(category)}/${encodeURIComponent(id)}`);
     if (!res.success) throw new Error(res.error);
-    const content = res.data.content;
+    const data = res.data;
+    const body = (data.body != null) ? data.body : (data.content || '');
+    const md = (typeof renderMarkdown === 'function') ? renderMarkdown(body) : escapeHtml(body);
     openViewModal({
-      title: `${category} / ${id}`,
-      content,
+      title: data.title || `${category} / ${id}`,
+      html: md,
       onEdit: () => editBrainPage(category, id, () => showPageDetail(category, id, returnPage)),
     });
   } catch (err) {
@@ -1500,17 +1765,179 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// 强制重新拉取知识库页面列表（数据变更后调用），可选直接跳到某分类筛选
+function refreshBrain(category) {
+  if (category) appState.brainFilter.category = category;
+  appState.brainLoaded = false;
+  renderPage('brain');
+}
+
 function searchBrain() {
-  const kw = document.getElementById('brain-search').value;
-  appState.brainFilter.kw = kw;
+  const el = document.getElementById('brain-search');
+  appState.brainFilter.kw = el ? el.value : '';
   appState.pager.brain.page = 1;
   renderPage('brain');
+}
+
+function clearBrainSearch() {
+  appState.brainFilter.kw = '';
+  appState.pager.brain.page = 1;
+  renderPage('brain');
+}
+
+function sortBrain(key) {
+  const s = appState.brainSort;
+  if (s.key === key) s.dir = (s.dir === 'asc' ? 'desc' : 'asc');
+  else { s.key = key; s.dir = 'asc'; }
+  appState.pager.brain.page = 1;
+  renderPage('brain');
+}
+
+function sortIndicator(key) {
+  const s = appState.brainSort || { key: 'id', dir: 'asc' };
+  if (s.key !== key) return ' <span class="sort-ind">⇅</span>';
+  return ' <span class="sort-ind sort-ind-' + s.dir + '">' + (s.dir === 'asc' ? '▲' : '▼') + '</span>';
 }
 
 function filterBrain(category) {
   appState.brainFilter.category = category;
   appState.pager.brain.page = 1;
   renderPage('brain');
+}
+
+// 知识库所有可浏览分类（与后端 config/projects.json 的 categories 一致）
+const BRAIN_CATEGORIES = ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases', 'test-scripts'];
+function brainCategoryOptions(selected) {
+  const def = (selected && selected !== 'all') ? selected : 'quality-rules';
+  return BRAIN_CATEGORIES.map(c => `<option value="${c}" ${c === def ? 'selected' : ''}>${c}</option>`).join('');
+}
+
+// 新增单条知识库页面（人工维护/补充内容）
+function openCreatePageModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-header"><span>新增知识库条目</span><button class="modal-close" aria-label="关闭">×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>分类</label>
+          <select id="cp-category" class="form-control">${brainCategoryOptions(appState.brainFilter.category)}</select>
+        </div>
+        <div class="form-row">
+          <label>标题</label>
+          <input id="cp-title" type="text" class="form-control" placeholder="请输入条目标题" />
+        </div>
+        <div class="form-row">
+          <label>内容（Markdown）</label>
+          <textarea id="cp-content" class="form-control" rows="12" placeholder="支持 Markdown：# 标题、## 小节、- 列表、\`代码\` 等"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary cp-cancel">取消</button>
+        <button class="btn btn-primary cp-save">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('.modal-close').onclick = close;
+  overlay.querySelector('.cp-cancel').onclick = close;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('.cp-save').onclick = () => submitCreatePage(overlay, close);
+}
+
+async function submitCreatePage(overlay, close) {
+  const btn = overlay.querySelector('.cp-save');
+  const category = overlay.querySelector('#cp-category').value;
+  const title = overlay.querySelector('#cp-title').value.trim();
+  const content = overlay.querySelector('#cp-content').value;
+  if (!title) { alert('标题不能为空'); return; }
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const res = await apiPost('/brain/pages', { category, title, content });
+    if (!res.success) throw new Error(res.error || '保存失败');
+    alert('已新增条目：' + title);
+    close();
+    refreshBrain(category);
+  } catch (err) {
+    alert('新增失败: ' + err.message);
+    btn.disabled = false; btn.textContent = '保存';
+  }
+}
+
+// 批量新增知识库页面（人工维护）
+// 文本格式：每条以单独一行的 4 个及以上短横线（----）分隔；块内首行作为标题（可带 #/## 前缀）
+function openBatchCreateModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-header"><span>批量新增知识库条目</span><button class="modal-close" aria-label="关闭">×</button></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>分类</label>
+          <select id="bc-category" class="form-control">${brainCategoryOptions(appState.brainFilter.category)}</select>
+        </div>
+        <div class="form-row">
+          <label>条目内容</label>
+          <textarea id="bc-content" class="form-control" rows="14" placeholder="每条之间用单独一行的 ---- 分隔&#10;例如：&#10;接口A说明&#10;- 要点1&#10;----&#10;## 接口B说明&#10;- 要点2"></textarea>
+        </div>
+        <div class="form-hint">提示：每条之间用单独一行的 <code>----</code> 分隔；块内首行作为标题（可带 # / ## 前缀），其余为正文。</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary bc-cancel">取消</button>
+        <button class="btn btn-primary bc-save">批量保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('.modal-close').onclick = close;
+  overlay.querySelector('.bc-cancel').onclick = close;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('.bc-save').onclick = () => submitBatchCreate(overlay, close);
+}
+
+function parseBatchEntries(text) {
+  const blocks = text.split(/^\s*-{4,}\s*$/m).map(b => b.trim()).filter(Boolean);
+  const entries = [];
+  for (const block of blocks) {
+    const lines = block.split(/\r?\n/);
+    let title = '';
+    let startIdx = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i].trim();
+      if (ln) {
+        title = ln.replace(/^#{1,6}\s*/, '').trim();
+        startIdx = i + 1;
+        break;
+      }
+    }
+    if (!title) continue;
+    const body = lines.slice(startIdx).join('\n').trim();
+    entries.push({ title, content: body });
+  }
+  return entries;
+}
+
+async function submitBatchCreate(overlay, close) {
+  const btn = overlay.querySelector('.bc-save');
+  const category = overlay.querySelector('#bc-category').value;
+  const raw = overlay.querySelector('#bc-content').value;
+  const entries = parseBatchEntries(raw);
+  if (entries.length === 0) { alert('未解析到任何条目，请按提示用 ---- 分隔每条'); return; }
+  if (!confirm(`将向「${category}」批量新增 ${entries.length} 条，确认？`)) return;
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const res = await apiPost('/brain/pages/batch', { category, entries });
+    if (!res.success) throw new Error(res.error || '批量保存失败');
+    const n = res.data ? res.data.created : entries.length;
+    alert(`已批量新增 ${n} 条到「${category}」`);
+    close();
+    refreshBrain(category);
+  } catch (err) {
+    alert('批量新增失败: ' + err.message);
+    btn.disabled = false; btn.textContent = '批量保存';
+  }
 }
 
 function changeAuditPage(page) {
@@ -1712,7 +2139,7 @@ async function confirmPromote() {
     }
     alert(`晋升完成：成功 ${ok} 页，失败 ${fail} 页`);
     promoteModal.classList.remove('show');
-    if (ok > 0) renderPage('brain');
+    if (ok > 0) refreshBrain();
   } catch (err) {
     alert('晋升失败: ' + err.message);
   } finally {
@@ -1781,8 +2208,7 @@ document.getElementById('confirm-import').addEventListener('click', async () => 
       alert(detail);
       importModal.classList.remove('show');
       if (d.category === 'project-wiki') {
-        renderPage('brain');
-        filterBrain('project-wiki');
+        refreshBrain('project-wiki');
       } else {
         renderPage('drafts');
       }
@@ -1900,7 +2326,7 @@ async function openWikiPage(id) {
     const res = await apiGet(`/brain/pages/project-wiki/${encodeURIComponent(id)}`);
     if (!res.success) { main.innerHTML = `<div class="empty-state">未找到 Wiki 页面：${escapeHtml(id)}</div>`; return; }
     const data = res.data;
-    const { fm } = parseFrontmatter(data.content);
+    const { fm, body } = parseFrontmatter(data.content);
     const aiSummary = fm.aiSummary || '';
     main.innerHTML = `<article class="wiki-article">
       <div class="wiki-article-head">
@@ -1908,7 +2334,6 @@ async function openWikiPage(id) {
         <div class="wiki-article-actions">
           ${id && id.startsWith('api-') ? `<button class="btn btn-secondary btn-sm" onclick="openGraphForModule('${id}')">在图谱中查看</button>` : ''}
           ${(id.startsWith('prd-') || id.startsWith('req-')) ? `<button class="btn btn-secondary btn-sm" onclick="extractEntities('${id}')">抽取实体（GBrain）</button>` : ''}
-          ${fm.raw ? `<button class="btn btn-secondary btn-sm" onclick="showRawDoc('${fm.raw}')">查看原始文档</button>` : ''}
           <button class="btn btn-secondary btn-sm" onclick="loadWikiIndex()">返回索引</button>
         </div>
       </div>
@@ -1925,8 +2350,8 @@ async function openWikiPage(id) {
             <button class="btn btn-primary btn-sm" onclick="generateWikiSummary('${id}')">生成 AI 摘要</button>
           </div>`}
       <div class="wiki-article-body">
-        ${buildToc(data.content)}
-        <div class="wiki-md">${renderMarkdown(data.content)}</div>
+      ${buildToc(body)}
+      <div class="wiki-md">${renderMarkdown(body)}</div>
       </div>
     </article>`;
   } catch (err) {
@@ -1934,35 +2359,18 @@ async function openWikiPage(id) {
   }
 }
 
-async function showRawDoc(rawRel) {
-  const file = String(rawRel || '').replace(/^raw[/\\]/, '');
-  try {
-    const res = await apiGet(`/brain/raw?category=project-wiki&file=${encodeURIComponent(file)}`);
-    if (!res.success) throw new Error(res.error || '未找到');
-    const src = res.data.sourceFile
-      ? `<p class="form-hint" style="margin-bottom:12px;">源文件：<code>${escapeHtml(res.data.sourceFile)}</code></p>`
-      : '';
-    openModal('原始文档' + (res.data.title ? '：' + res.data.title : ''),
-      src + `<pre class="raw-doc">${escapeHtml(res.data.content)}</pre>`);
-  } catch (err) {
-    openModal('原始文档', `<div class="error-box">加载失败：${escapeHtml(err.message)}</div>`);
-  }
-}
+// raw 溯源区已隔离，不再提供前端「查看原始文档」入口（见安全约束）
 
 async function extractEntities(id) {
   if (!confirm('将调用 GBrain 从本文档语义抽取实体并生成实体页，可能需要 1-2 分钟，确定继续？')) return;
-  openModal('抽取实体中', '<div class="loading">正在调用 GBrain 语义抽取实体，请稍候（可能需要 1-2 分钟）...</div>');
+  const prog = showProgress({ title: '抽取实体中', message: '正在调用 GBrain 语义抽取实体，请稍候（可能需要 1-2 分钟）…' });
   try {
     const res = await apiPost(`/wiki/project-wiki/${encodeURIComponent(id)}/extract-entities`, {});
-    const ov = document.querySelector('.modal-overlay');
-    if (ov) ov.remove();
     if (!res.success) throw new Error(res.error || '未知错误');
-    alert(`已抽取 ${res.data.count} 个实体，可在左侧索引「实体（GBrain 抽取）」分组查看；实体索引页：${res.data.indexId}`);
+    prog.done(`已抽取 ${res.data.count} 个实体，可在左侧索引「实体（GBrain 抽取）」分组查看；实体索引页：${res.data.indexId}`, 'success');
     loadWikiIndex();
   } catch (err) {
-    const ov = document.querySelector('.modal-overlay');
-    if (ov) ov.remove();
-    alert('抽取失败：' + err.message);
+    prog.fail('抽取失败：' + err.message);
   }
 }
 
@@ -1970,12 +2378,15 @@ async function generateWikiSummary(id) {
   const main = document.getElementById('wiki-content');
   const btn = main && main.querySelector('.wiki-summary .btn, .wiki-summary-empty .btn');
   if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
+  const prog = showProgress({ title: '生成 AI 摘要', message: '正在调用 GBrain 生成摘要，请稍候…' });
   try {
     const res = await apiPost(`/wiki/project-wiki/${encodeURIComponent(id)}/ai-summary`, {});
     if (!res.success) throw new Error(res.error || '未知错误');
     await openWikiPage(id);
+    prog.done('AI 摘要已生成', 'success');
   } catch (err) {
-    alert('生成失败：' + err.message);
+    prog.fail('生成失败：' + err.message);
+  } finally {
     if (btn) { btn.disabled = false; btn.textContent = '生成 AI 摘要'; }
   }
 }
@@ -2070,6 +2481,18 @@ function inlineMd(text) {
   return s;
 }
 
+function splitMdRow(row) {
+  let s = row.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  return s.split('|').map(c => c.trim());
+}
+function renderMdTable(headers, rows) {
+  const head = '<thead><tr>' + headers.map(h => `<th>${inlineMd(h)}</th>`).join('') + '</tr></thead>';
+  const body = rows.map(r => '<tr>' + headers.map((_, idx) => `<td>${inlineMd(r[idx] || '')}</td>`).join('') + '</tr>').join('');
+  return `<table class="md-table">${head}<tbody>${body}</tbody></table>`;
+}
+
 function renderMarkdown(md) {
   if (!md) return '';
   const lines = md.split(/\r?\n/);
@@ -2092,21 +2515,48 @@ function renderMarkdown(md) {
     }
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) { flushP(); closeList(); const lv = h[1].length; html += `<h${lv} class="md-h md-h${lv}" id="${slugify(h[2])}">${inlineMd(h[2])}</h${lv}>`; i++; continue; }
-    if (/^(-{3,}|\*{3,})\s*$/.test(line)) { flushP(); closeList(); html += '<hr>'; i++; continue; }
+    // GFM 表格：当前行以 | 起始，且下一行是分隔线（仅含 | - : 与空白）
+    if (/^\|/.test(line)) {
+      const next = lines[i + 1] || '';
+      if (/^[\s|]*-+[\s|:-]*$/.test(next) && /-/.test(next)) {
+        flushP(); closeList();
+        const headers = splitMdRow(line);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && /^\|/.test(lines[i])) { rows.push(splitMdRow(lines[i])); i++; }
+        html += renderMdTable(headers, rows);
+        continue;
+      }
+    }
+    // 分隔线 或 内嵌 frontmatter 元信息块（--- key: value ... ---）
+    if (/^(-{3,}|\*{3,})\s*$/.test(line)) {
+      if (/^-{3,}\s*$/.test(line)) {
+        let j = i + 1; let isMeta = true; const metaLines = [];
+        while (j < lines.length && !/^-{3,}\s*$/.test(lines[j])) {
+          if (/^\s*[\w一-龥-]+:\s*/.test(lines[j])) { metaLines.push(lines[j]); j++; }
+          else { isMeta = false; break; }
+        }
+        if (isMeta && metaLines.length && j < lines.length) {
+          flushP(); closeList();
+          const dl = metaLines.map(l => {
+            const idx = l.indexOf(':');
+            const k = l.slice(0, idx).trim();
+            const v = l.slice(idx + 1).trim();
+            return `<dt>${escapeHtml(k)}</dt><dd>${inlineMd(v)}</dd>`;
+          }).join('');
+          html += `<dl class="md-meta">${dl}</dl>`;
+          i = j + 1;
+          continue;
+        }
+      }
+      flushP(); closeList(); html += '<hr>'; i++; continue;
+    }
     if (/^>\s?/.test(line)) {
       flushP(); closeList();
       const buf = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, '')); i++; }
       html += `<blockquote class="md-quote">${inlineMd(buf.join(' '))}</blockquote>`;
       continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.*)$/);
-    if (heading) {
-      flushP(); closeList();
-      const lvl = heading[1].length;
-      const txt = heading[2].trim();
-      html += `<h${lvl} id="${slugify(txt)}" class="md-h${lvl}">${inlineMd(txt)}</h${lvl}>`;
-      i++; continue;
     }
     const ul = line.match(/^(\s*)[-*]\s+(.*)$/);
     if (ul) { flushP(); if (!inList || listType !== 'ul') { closeList(); html += '<ul class="md-ul">'; inList = true; listType = 'ul'; } html += `<li>${inlineMd(ul[2])}</li>`; i++; continue; }

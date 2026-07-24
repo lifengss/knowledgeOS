@@ -116,6 +116,31 @@ class AuditLog:
             rows = cur.fetchall()
             return [dict(r) for r in rows]
 
+    def count(
+        self,
+        action: str = None,
+        operator: str = None,
+        target: str = None,
+        project: str = None,
+    ) -> int:
+        """统计审计记录总数（与 query 同样的过滤条件，用于分页）。"""
+        query = "SELECT COUNT(*) FROM audit_log WHERE 1=1"
+        params = []
+        if action:
+            query += " AND action = ?"
+            params.append(action)
+        if operator:
+            query += " AND operator = ?"
+            params.append(operator)
+        if target:
+            query += " AND target = ?"
+            params.append(target)
+        if project:
+            query += " AND project = ?"
+            params.append(project)
+        with self._connect() as conn:
+            return conn.execute(query, params).fetchone()[0]
+
     def get_stats(self, project: str = None) -> dict:
         with self._connect() as conn:
             cur = conn.cursor()

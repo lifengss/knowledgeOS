@@ -14,6 +14,11 @@ cache/*.log
 data/
 server.err
 server.out
+ks.err
+ks.out
+
+# Temporary diagnostic scripts (never commit)
+_*.cjs
 
 # Environment variables
 .env

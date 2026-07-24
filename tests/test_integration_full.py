@@ -451,11 +451,16 @@ class TestPrivatePromote(BaseIntegration):
 
 class TestGraphData(BaseIntegration):
     def test_graph_data(self):
-        """图谱数据接口可返回模块/接口。"""
+        """图谱数据接口可返回模块/接口；mode=entity 返回实体图谱。"""
         st, j = req("GET", "/graph-data?project=default")
         self.assertEqual(st, 200)
         self.assertTrue(j.get("success"))
         self.assertIn("data", j)
+        # 实体模式：mode=entity 同样返回图谱结构，用于知识图谱扩展
+        st2, j2 = req("GET", "/graph-data?project=default&mode=entity")
+        self.assertEqual(st2, 200)
+        self.assertTrue(j2.get("success"))
+        self.assertIn("data", j2)
 
 
 class TestPythonModules(BaseIntegration):

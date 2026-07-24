@@ -14,7 +14,7 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
 from cache import AuditLog, DraftCache
-from skills.batch_commit import _build_page_content, _write_to_brain, _resolve_brain_dir
+from skills.batch_commit import _build_page_content, _write_to_brain, _resolve_brain_dir, _standard_categories
 from skills.conflict_detector import detect_conflicts
 from skills.quality_gate import run_quality_gate
 
@@ -109,15 +109,60 @@ def single_commit(
             score = None
 
         # 3. 写入 Brain
-        from skills.batch_commit import BRAIN_TYPE_MAP
+        from skills.batch_commit import BRAIN_TYPE_MAP, _shared_brain_path
 
         draft_type = draft.get("type", "")
-        brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
-        slug = f"{brain_type}/{draft_id}"
+        metadata = draft.get("metadata") or {}
 
-        page_content = _build_page_content(draft)
-        brain_dir = _resolve_brain_dir(effective_project)
-        success = _write_to_brain(brain_dir, slug, page_content)
+        if draft_type == "knowledge_edit":
+            # 人工编辑优化（链路 3a）：写回原知识库页面，而非生成新文件
+            # 对齐 batch_commit.py 的同名分支，修复"单条入库被非标准分类拒绝"的问题
+            category = metadata.get("category") or ""
+            page_id = metadata.get("pageId") or draft_id
+            repo = metadata.get("repo") or ""
+            if (not category or ".." in category or "/" in category or "\\" in category
+                    or ".." in page_id or "/" in page_id or "\\" in page_id):
+                return {
+                    "draftId": draft_id,
+                    "success": False,
+                    "committedPage": None,
+                    "conflictId": None,
+                    "score": score,
+                    "reason": "非法的知识编辑分类或页面 ID（禁止路径越界）",
+                }
+            if repo and os.path.basename(str(_shared_brain_path())) == repo:
+                brain_dir_edit = _shared_brain_path()
+            else:
+                brain_dir_edit = _resolve_brain_dir(effective_project)
+            slug = f"{category}/{page_id}"
+            page_content = draft.get("content", "")  # 所见即所得，不包裹 frontmatter
+            success = _write_to_brain(brain_dir_edit, slug, page_content)
+            # 重分类移动：目标分类与原分类不同则删除原文件（严格移动，不留旧文件）
+            original_category = metadata.get("originalCategory") or ""
+            if success and original_category and original_category != category:
+                orig_path = os.path.join(brain_dir_edit, original_category, f"{page_id}.md")
+                try:
+                    if os.path.exists(orig_path):
+                        os.remove(orig_path)
+                except OSError:
+                    pass  # 旧文件删除失败不阻断主流程（新文件已写入）
+        else:
+            brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
+            # 禁止诞生非标准分类（如 defect_rule）：目标目录必须是项目标准分类之一
+            if brain_type not in _standard_categories(effective_project):
+                return {
+                    "draftId": draft_id,
+                    "success": False,
+                    "committedPage": None,
+                    "conflictId": None,
+                    "score": score,
+                    "reason": f"非标准分类 '{brain_type}' 被拒绝入库：请使用标准分类之一 {_standard_categories(effective_project)}",
+                }
+            slug = f"{brain_type}/{draft_id}"
+
+            page_content = _build_page_content(draft)
+            brain_dir = _resolve_brain_dir(effective_project)
+            success = _write_to_brain(brain_dir, slug, page_content)
 
         if not success:
             return {

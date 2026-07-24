@@ -14,6 +14,10 @@
  *  - 多项目隔离：查询接口通过 ?project=<id> 指定项目；写入接口通过请求体 { project: "<id>" }
  *    指定；未指定时默认 default。Brain 页面按项目私有库 + 共享库合并去重（私有优先）。
  *  - 认证：当前版本未启用鉴权。
+ *  - 列表 / 分页接口：data 必须为对象信封 { items: [...], total: number, page?, pageSize? }，
+ *    禁止返回裸数组；前端统一用 res.data.items / res.data.total。响应字段名须与对应端点
+ *    responseExample 逐字段一致（审计记录 created_at、草稿 createdAt，不可混用）。
+ *  - 查询参数命名以各端点文档为准，禁止跨端点套用（如 /api/audit-log 用 pageSize，不能用 limit）。
  *  - 基址：http://localhost:3000/api （由 api/server.js 托管，端口见服务配置）
  */
 
@@ -21,7 +25,7 @@ window.KB_API_DOCS = {
   meta: {
     baseUrl: 'http://localhost:3000/api',
     version: 'V1.0',
-    convention: '所有接口统一返回 { success: boolean, data?: any, error?: string }；失败时为 success=false 且带 error。查询参数多为可选，未传时取服务端默认值。',
+    convention: '统一返回 { success, data, error }；列表/分页接口 data 须为 { items, total, page?, pageSize? } 信封，禁止裸数组；响应字段名须与文档 responseExample 逐字段一致（如审计 created_at、草稿 createdAt，不可混用）；分页参数名以各端点文档为准（audit-log 用 pageSize，草稿/冲突/知识库用 limit），禁止跨端点套用。',
     project: '多项目隔离：查询接口用 ?project=<id>，写入接口用请求体 { project: "<id>" }；缺省默认 default。Brain 页面按"项目私有库 + 共享库"合并（私有优先）。',
     mcpStatus: 'MCP 服务已实现：mcp_connector/ 下 query_server.py（只读 knowledgeos-query）与 write_server.py（写入 knowledgeos-write），FastMCP stdio 传输，薄封装下方 REST API。CodeBuddy 经 .codebuddy/mcp.json 接入；testcase-gen-frontend 经 Agent SDK 的 mcpServers 接入。'
   },
@@ -69,7 +73,7 @@ window.KB_API_DOCS = {
     "defaultProject": "default",
     "sharedBrain": "brains/_shared",
     "projects": [
-      { "id": "default", "name": "默认项目", "description": "", "brainPath": "brain" },
+      { "id": "default", "name": "默认项目", "description": "", "brainPath": "brains/default" },
       { "id": "demo", "name": "示例项目", "description": "demo", "brainPath": "brains/demo" }
     ]
   }
@@ -171,9 +175,9 @@ window.KB_API_DOCS = {
   -d '{"title":"修订后的标题","content":"# 规则\\n修订内容..."}'`,
           responseExample: `{
   "success": true,
-  "data": { "success": true }
+  "data": { "success": true, "ruleDraftId": "b7e1..." }
 }`,
-          notes: '仅更新传入的字段；不影响草稿状态，仍需单条/批量入库才进入知识库。'
+          notes: '仅更新传入的字段；不影响草稿状态，仍需单条/批量入库才进入知识库。当被编辑草稿类型为 test_case / test_script 且正文产生有效改动时，系统自动对比新旧内容、提炼一条 quality_rule 草稿进入缓冲层，其 ID 通过 ruleDraftId 返回（无有效改动或类型不符时为 undefined）。'
         },
         {
           method: 'POST',
@@ -596,13 +600,14 @@ curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "no
           method: 'POST',
           path: '/api/brain/pages/:category/:id/propose-edit',
           summary: '提交编辑（人工编辑优化闭环）',
-          description: '人工修改已发布页面时不直接写盘，而是生成两条草稿：A. 知识条目修改草稿(type=knowledge_edit，确认入库后写回原仓库)；B. 质量规则草稿(type=quality_rule，由 old/new 对比自动提炼，进草稿箱待确认)。',
+          description: '人工修改已发布页面时不直接写盘，而是生成两条草稿：A. 知识条目修改草稿(type=knowledge_edit，确认入库后写回原仓库或所选分类)；B. 质量规则草稿(type=quality_rule，由 old/new 对比自动提炼，进草稿箱待确认)。body 可选 category 字段为重分类目标，缺省写回原分类。',
           params: [
             { name: 'category', in: 'path', required: true, desc: '分类（须为合法分类）' },
             { name: 'id', in: 'path', required: true, desc: '页面 ID（不含 .md）' },
             { name: 'content', in: 'body', required: true, desc: '新 Markdown 正文' },
             { name: 'repo', in: 'body', required: false, desc: '原仓库标识(brain/_shared)，缺省按原文件所在仓库' },
-            { name: 'project', in: 'body', required: false, desc: '项目隔离，默认 default' }
+            { name: 'project', in: 'body', required: false, desc: '项目隔离，默认 default' },
+            { name: 'category', in: 'body', required: false, desc: '重分类目标（须为合法分类），缺省写回原分类；改选后编辑内容落至所选分类目录' }
           ],
           requestExample: `curl -X POST {BASE}/brain/pages/quality-rules/a1b2c3/propose-edit \\
   -H "Content-Type: application/json" -d '{"content":"# 空指针防护\\n修订后的内容..."}'`,
@@ -682,7 +687,10 @@ curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "no
           path: '/api/graph-data',
           summary: '获取图谱数据',
           description: '返回知识/代码实体节点与关系边，供前端力导向图渲染。',
-          params: [ { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' } ],
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' },
+            { name: 'mode', in: 'query', required: false, desc: "图谱模式：api（默认，API 调用依赖图谱）或 entity（项目实体图谱，用于知识图谱扩展）" }
+          ],
           requestExample: 'curl "{BASE}/graph-data?project=default"',
           responseExample: `{
   "success": true,
@@ -732,7 +740,9 @@ curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "no
       id: 'mcp',
       name: 'MCP 服务（已实现）',
       description: '面向 AI Agent 的 Model Context Protocol 接口，已实现为 stdio 传输的 MCP 服务（mcp_connector/，FastMCP）。' +
-        '物理隔离为 knowledgeos-query（只读）与 knowledgeos-write（写入）两个 stdio 服务，薄封装下方 REST API，所有知识逻辑仍在 REST 端实现。',
+        '物理隔离为 knowledgeos-query（只读）与 knowledgeos-write（写入）两个 stdio 服务，薄封装下方 REST API，所有知识逻辑仍在 REST 端实现。' +
+        '安全约束：隔离 raw 溯源区与源文档全文页(prd-/req-/tr-)不对 MCP 暴露（get_knowledge_page / search_knowledge / tfidf-code-slicer 已过滤），' +
+        '仅衍生的 entity-/concept- 等实体/概念内容页可访问；get_knowledge_graph 支持 mode=api|entity（entity 为项目实体图谱，用于知识图谱扩展）。',
       endpoints: [
         {
           method: 'MCP',

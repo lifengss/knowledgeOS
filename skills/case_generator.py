@@ -200,7 +200,7 @@ def generate_cases(
             ]
             for r in search_results:
                 if r.get("content"):
-                    pages.append({"id": r["slug"], "title": r["title"], "content": r["content"][:2000]})
+                    pages.append({"id": r["slug"], "title": r["title"], "snippet": (r.get("snippet") or "")[:200]})
         else:
             results = _gbrain_query(query, limit)
     elif mode == "keyword":
@@ -213,7 +213,7 @@ def generate_cases(
             ]
             for r in search_results:
                 if r.get("content"):
-                    pages.append({"id": r["slug"], "title": r["title"], "content": r["content"][:2000]})
+                    pages.append({"id": r["slug"], "title": r["title"], "snippet": (r.get("snippet") or "")[:200]})
         else:
             search_results = _gbrain_search(query, limit)
             results = [
@@ -234,7 +234,7 @@ def generate_cases(
                         {
                             "id": r["slug"],
                             "title": r["title"],
-                            "content": page["content"][:2000],  # 截断
+                            "snippet": (page.get("snippet") or "")[:200],  # 截断：不再回传整页原文，仅保留短摘要，避免超 token / 文档泄露
                         }
                     )
     elif mode == "semantic":
@@ -249,7 +249,7 @@ def generate_cases(
             ]
             for r in search_results:
                 if r.get("content"):
-                    pages.append({"id": r["slug"], "title": r["title"], "content": r["content"][:2000]})
+                    pages.append({"id": r["slug"], "title": r["title"], "snippet": (r.get("snippet") or "")[:200]})
         else:
             results = _gbrain_query(query, limit)
     elif mode == "graph":
@@ -264,7 +264,7 @@ def generate_cases(
                     {
                         "id": r["slug"],
                         "title": r["title"],
-                        "content": page["content"][:2000],
+                        "snippet": (page.get("snippet") or "")[:200],
                     }
                 )
 

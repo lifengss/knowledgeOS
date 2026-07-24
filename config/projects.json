@@ -5,13 +5,14 @@
     "quality-rules",
     "defect-experience",
     "project-wiki",
-    "test-cases"
+    "test-cases",
+    "test-scripts"
   ],
   "projects": [
     {
       "id": "default",
       "name": "默认项目",
-      "brainPath": "brain",
+      "brainPath": "brains/default",
       "description": "默认知识库项目，包含已有的全部页面"
     },
     {
@@ -25,6 +26,12 @@
       "name": "AI 测试用例生成系统",
       "description": "自动化测试用例生成前端业务系统的知识库：存放该系统自身搭建过程中生成的测试用例与自动化测试脚本",
       "brainPath": "brains/testCaseGenerator"
+    },
+    {
+      "id": "tg-yja078186",
+      "name": "AI计算集群仿真系统",
+      "description": "新建测试项目",
+      "brainPath": "brains/tg-yja078186"
     }
   ]
 }

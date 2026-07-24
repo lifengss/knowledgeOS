@@ -100,8 +100,10 @@ def get_page(category, page_id, project=None) -> dict:
     return _request("GET", f"/api/brain/pages/{category}/{page_id}", project=project)
 
 
-def graph_data(project=None) -> dict:
-    return _request("GET", "/api/graph-data", project=project)
+def graph_data(project=None, mode="api") -> dict:
+    """获取知识图谱。mode=api（默认，API 调用依赖）或 entity（项目实体图谱，用于知识图谱扩展）。"""
+    params = {"mode": mode}
+    return _request("GET", "/api/graph-data", project=project, params=params)
 
 
 def stats(project=None) -> dict:

@@ -271,18 +271,63 @@ app.put('/api/drafts/:id/status', async (req, res) => {
 });
 
 // PUT /api/drafts/:id - 更新草稿内容（人工编辑标题/正文/类型）
+// 当编辑的是 AI 生成的用例/脚本(test_case / test_script)且正文产生有效改动时，
+// 自动对比新旧内容、提炼质量规则草稿进入缓冲层（对齐设计「链路 3a / 4.2.4 人工编辑缓存写入流程」）。
 app.put('/api/drafts/:id', async (req, res) => {
   try {
     const { title, content, type } = req.body;
-    const args = [
-      '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
-      'update-draft',
-      '--id', req.params.id,
-    ];
+    const db = process.env.CACHE_DB_PATH || './cache/drafts.db';
+    const pid = resolveProject(req);
+
+    // 读取原草稿：用于更新，并判断是否产生有效改动以触发质量规则总结
+    const oldDraft = await callPython('cache/draft_cache.py', [
+      '--db', db, 'get', '--id', req.params.id,
+    ]).catch(() => null);
+    const oldContent = (oldDraft && oldDraft.content) ? oldDraft.content : '';
+    const oldType = (oldDraft && oldDraft.type) ? oldDraft.type : type;
+
+    // 更新草稿内容
+    const args = ['--db', db, 'update-draft', '--id', req.params.id];
     if (title !== undefined) args.push('--title', title);
     if (content !== undefined) args.push('--content', content);
     if (type !== undefined) args.push('--type', type);
     const result = await callPython('cache/draft_cache.py', args);
+
+    // 自动总结质量规则：仅对 AI 生成用例/脚本类草稿、且正文有效改动时触发；
+    // 编辑质量规则草稿自身(oldType=quality_rule)不级联，避免无限生成。
+    const TRIGGER_TYPES = new Set(['test_case', 'test_script']);
+    const newContent = (content !== undefined) ? content : oldContent;
+    const changed = newContent !== oldContent
+      && newContent.replace(/\s+/g, '') !== oldContent.replace(/\s+/g, '');
+    if (TRIGGER_TYPES.has(oldType) && changed) {
+      try {
+        const draftTitle = title || (oldDraft && oldDraft.title) || req.params.id;
+        const ruleResult = await callPython('skills/generate_quality_rule.py', [
+          '--title', draftTitle,
+          '--old', oldContent,
+          '--new', newContent,
+        ]);
+        const ruleContent = (ruleResult && ruleResult.content) ? ruleResult.content : '';
+        if (ruleContent) {
+          const ruleDraft = await callPython('cache/draft_cache.py', [
+            '--db', db, 'add',
+            '--source', 'human_edit',
+            '--type', 'quality_rule',
+            '--title', `质量规则: ${draftTitle}`,
+            '--content', ruleContent,
+            '--metadata', JSON.stringify({
+              fromDraftEdit: { draftId: req.params.id, draftType: oldType },
+              ruleSource: ruleResult.source,
+            }),
+            '--project', (oldDraft && oldDraft.projectId) || pid,
+          ]);
+          result.ruleDraftId = ruleDraft.id || ruleDraft.draftId || null;
+        }
+      } catch (e) {
+        console.error('[draft-edit] 质量规则自动总结失败(已忽略):', e.message);
+      }
+    }
+
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -452,9 +497,9 @@ app.post('/api/quality-gate/check', async (req, res) => {
 app.get('/api/audit-log', async (req, res) => {
   try {
     const { action, operator, target, startTime, endTime, page = 1, pageSize = 20 } = req.query;
-    const result = await callPython('cache/draft_cache.py', [
+    const buildArgs = (cmd) => [
       '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
-      'list-audit',
+      cmd,
       '--page', String(page),
       '--page-size', String(pageSize),
       ...(action ? ['--action', action] : []),
@@ -462,8 +507,14 @@ app.get('/api/audit-log', async (req, res) => {
       ...(target ? ['--target', target] : []),
       ...(startTime ? ['--start-time', startTime] : []),
       ...(endTime ? ['--end-time', endTime] : [])
+    ];
+    // 返回结构化 { items, total }，供前端分页与趋势聚合使用
+    const [items, totalRaw] = await Promise.all([
+      callPython('cache/draft_cache.py', buildArgs('list-audit')),
+      callPython('cache/draft_cache.py', buildArgs('count-audit')).catch(() => null)
     ]);
-    res.json({ success: true, data: result });
+    const total = (typeof totalRaw === 'number') ? totalRaw : (Array.isArray(items) ? items.length : 0);
+    res.json({ success: true, data: { items, total } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -491,14 +542,19 @@ app.get('/api/brain/stats', async (req, res) => {
     const categories = projects.CATEGORIES || ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases', 'test-scripts'];
     const stats = {};
     for (const cat of categories) {
-      let count = 0;
+      // 私有库优先，共享库同名文件按 cat/file 去重，使统计与 /api/brain/pages、/api/stats 一致
+      const seen = new Set();
       for (const bdir of brainDirs) {
         const catPath = path.join(bdir, cat);
-        if (fs.existsSync(catPath)) {
-          count += fs.readdirSync(catPath).filter(f => f.endsWith('.md')).length;
+        if (!fs.existsSync(catPath)) continue;
+        for (const f of fs.readdirSync(catPath)) {
+          if (!f.endsWith('.md')) continue;
+          const key = `${cat}/${f}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
         }
       }
-      stats[cat] = { count };
+      stats[cat] = { count: seen.size };
     }
     res.json({ success: true, data: stats });
   } catch (err) {
@@ -602,7 +658,7 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
     // 设计：文档材料 → 项目 Wiki 直接入库，不经过草稿缓冲层；前端「按功能模块」选测试范围的数据源。
     // 同时支持文件上传（multipart）与纯文本（JSON content）两种提交方式。
     // （与代码上传产生的 API 调用依赖图谱区分；仅 api-*.md 参与图谱构建，互不影响）
-    if (type === 'prd' || type === 'requirement') {
+    if (type === 'prd' || type === 'requirement' || type === 'test-report') {
       let text;
       if (req.file) {
         text = readTextFile(req.file.path);
@@ -611,9 +667,9 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
         text = req.body.content || '';
       }
       const brainDir = projects.resolveBrainDir(req.body.project || 'default');
-      const catDir = path.join(brainDir, 'project-wiki');
+      const catDir = path.join(brainDir, type === 'test-report' ? 'test-reports' : 'project-wiki');
       fs.mkdirSync(catDir, { recursive: true });
-      const prefix = type === 'requirement' ? 'req' : 'prd';
+      const prefix = type === 'requirement' ? 'req' : (type === 'test-report' ? 'tr' : 'prd');
       const fileBase = req.file ? path.basename(req.file.originalname, path.extname(req.file.originalname)) : '';
       const bodyName = req.body.filename ? String(req.body.filename).replace(/\.[^.]+$/, '') : '';
       const sourceFile = req.body.filename || (req.file ? req.file.originalname : '');
@@ -638,7 +694,7 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
 ${text}
 `;
       fs.writeFileSync(path.join(catDir, 'raw', `${slug}-raw.md`), rawFm, 'utf-8');
-      res.json({ success: true, data: { summary: `已沉淀为项目 Wiki：${slug}.md`, slug, uploadType: type, category: 'project-wiki' } });
+      res.json({ success: true, data: { summary: `已沉淀为${type === 'test-report' ? '测试报告(test-reports)' : '项目 Wiki'}：${slug}.md`, slug, uploadType: type, category: type === 'test-report' ? 'test-reports' : 'project-wiki' } });
       return;
     }
 
@@ -735,6 +791,11 @@ function tokenize(s) {
   return Array.from(toks).filter(t => t.length >= 2);
 }
 
+// 判断路径是否落在隔离 raw 溯源区（禁止经 API/MCP 读取）
+function isRawPath(p) {
+  return String(p).split(/[\\/]/).some(seg => seg === 'raw');
+}
+
 // 从 GBrain 各分类检索与问题相关的素材（返回 topN 条，含最佳片段）
 function kbRetrieve(question, brainDir, categories, topN) {
   const qTokens = tokenize(question);
@@ -745,6 +806,7 @@ function kbRetrieve(question, brainDir, categories, topN) {
     if (!fs.existsSync(catPath)) continue;
     for (const file of fs.readdirSync(catPath).filter(f => f.endsWith('.md'))) {
       const fp = path.join(catPath, file);
+      if (isRawPath(fp)) continue; // 跳过隔离 raw 溯源区
       let content;
       try { content = readTextFile(fp); } catch { continue; }
       let title = file;
@@ -1107,28 +1169,9 @@ app.get('/api/wiki/module-entities', async (req, res) => {
 // 模块 7: GBrain 页面管理
 // ---------------------------------------------------------------
 
-// GET /api/brain/raw - 读取 Raw 溯源区的原始文档
-app.get('/api/brain/raw', async (req, res) => {
-  try {
-    const { project, category = 'project-wiki', file } = req.query;
-    if (!file || /[\\/]?\.\./.test(file) || /[^A-Za-z0-9_.\-]/.test(file)) {
-      return res.status(400).json({ success: false, error: 'invalid file' });
-    }
-    const brainDir = projects.resolveBrainDir(project || 'default');
-    const rawDir = path.join(brainDir, category, 'raw');
-    const filePath = path.resolve(rawDir, file);
-    if (!filePath.startsWith(path.resolve(rawDir))) {
-      return res.status(403).json({ success: false, error: 'forbidden' });
-    }
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ success: false, error: 'not found' });
-    }
-    const raw = readTextFile(filePath);
-    res.json({ success: true, data: { title: file, content: raw, sourceFile: '' } });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+// Raw 溯源区（brains/<project>/<category>/raw/）为隔离存储：原始 PRD/需求等文档全文仅归档于此，
+// 按安全约束不对外提供任何 API/MCP 读取，仅由服务端内部流程（如实体抽取 /api/extract-entities）直接读取。
+// 故不注册 /api/brain/raw 路由——需要原始文档溯源请走受控内部流程，避免长文档经 API/MCP 返回导致泄密与模型输入超长。
 
 // GET /api/brain/pages - 获取 Brain 页面列表
 app.get('/api/brain/pages', async (req, res) => {
@@ -1137,8 +1180,8 @@ app.get('/api/brain/pages', async (req, res) => {
     const pid = resolveProject(req);
     // 读取项目私有库 + 共享库(合并去重)
     const brainDirs = brainDirsFor(pid);
-    const pages = [];
-    const categories = (category && category !== 'all') ? [category] : ['quality-rules', 'defect-experience', 'project-wiki', 'test-cases', 'test-scripts'];
+    let pages = [];
+    const categories = (category && category !== 'all') ? [category] : projects.CATEGORIES;
     const seen = new Set();
 
     for (const bdir of brainDirs) {
@@ -1146,26 +1189,34 @@ app.get('/api/brain/pages', async (req, res) => {
         const catPath = path.join(bdir, cat);
         if (!fs.existsSync(catPath)) continue;
         const files = fs.readdirSync(catPath).filter(f => f.endsWith('.md'));
-        for (const file of files.slice(0, Number(limit))) {
+        for (const file of files) {
+          if (isRawPath(path.join(catPath, file))) continue; // 跳过隔离 raw 溯源区
           const key = `${cat}/${file}`;
           if (seen.has(key)) continue; // 共享库可能与私有库重复，私有优先
           seen.add(key);
           const filePath = path.join(catPath, file);
           const content = readTextFile(filePath);
-          const titleMatch = content.match(/^#\s+(.+)$/m);
-          const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+          const fmMeta = parseFrontmatter(content);
+          let pageTitle = file;
+          if (fmMeta && fmMeta.title) pageTitle = fmMeta.title.replace(/^["']|["']$/g, '');
+          else {
+            const titleMatch = content.match(/^#\s+(.+)$/m);
+            if (titleMatch) pageTitle = titleMatch[1];
+          }
           pages.push({
             id: file.replace('.md', ''),
-            title: titleMatch ? titleMatch[1] : file,
+            title: pageTitle,
             category: cat,
             filename: file,
             repo: path.basename(bdir),
-            frontmatter: frontmatterMatch ? frontmatterMatch[1] : '',
+            frontmatter: fmMeta || null,
             preview: content.slice(0, 200)
           });
         }
       }
     }
+    // 全局分页：去重后的总数受 limit 约束（默认 100，前端浏览传 1000 取全量）
+    if (limit && pages.length > Number(limit)) pages = pages.slice(0, Number(limit));
     res.json({ success: true, data: pages });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1180,9 +1231,13 @@ app.get('/api/brain/pages/:category/:id', async (req, res) => {
     const brainDirs = brainDirsFor(pid);
     for (const bdir of brainDirs) {
       const filePath = path.join(bdir, category, `${id}.md`);
+      if (isRawPath(filePath)) continue; // 跳过隔离 raw 溯源区
       if (fs.existsSync(filePath)) {
         const content = readTextFile(filePath);
-        return res.json({ success: true, data: { content, repo: path.basename(bdir) } });
+        const fmMeta = parseFrontmatter(content) || {};
+        const body = content.replace(/^---\s*\n([\s\S]*?)\n---\s*\n?/, '');
+        const dt = fmMeta.title ? fmMeta.title.replace(/^["']|["']$/g, '') : (content.match(/^#\s+(.+)$/m) || [,''])[1];
+        return res.json({ success: true, data: { id, category, title: dt, content, body, frontmatter: fmMeta, repo: path.basename(bdir) } });
       }
     }
     return res.status(404).json({ success: false, error: 'Page not found' });
@@ -1190,6 +1245,85 @@ app.get('/api/brain/pages/:category/:id', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// 各分类新增页面时对应的文档类型（frontmatter.type）
+const BRAIN_CATEGORY_TYPE = {
+  'quality-rules': 'quality_rule',
+  'defect-experience': 'defect_experience',
+  'project-wiki': 'project_wiki',
+  'test-cases': 'test_case',
+  'test-scripts': 'test_script'
+};
+
+// 生成带 frontmatter 的页面内容
+function buildBrainPage(title, body, type) {
+  const t = String(title).trim().replace(/"/g, '\\"');
+  const tp = type || 'doc';
+  const ts = new Date().toISOString().slice(0, 10);
+  return `---\ntitle: "${t}"\ntype: ${tp}\nsource: manual\ncreated: ${ts}\nupdated: ${ts}\n---\n\n# ${t}\n\n${body || ''}`;
+}
+
+// 审计辅助（与现有 edit/promote 一致，失败仅告警不阻断）
+function logBrainAudit(action, target, pid) {
+  callPython('cache/draft_cache.py', [
+    '--db', process.env.CACHE_DB_PATH || './cache/drafts.db',
+    'log-audit', '--action', action, '--operator', 'web-ui',
+    '--target', target, '--project', pid
+  ]).catch((e) => console.error(`[audit] ${action} 审计失败(已忽略):`, e.message));
+}
+
+// POST /api/brain/pages - 新增单条知识库页面（人工维护/补充内容，直接写项目私有库）
+app.post('/api/brain/pages', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const { category, title, content, type } = req.body || {};
+    if (!category || !title || !title.trim()) {
+      return res.status(400).json({ success: false, error: 'category 与 title 必填' });
+    }
+    const dirs = brainDirsFor(pid);
+    const bdir = dirs[0]; // 私有库优先
+    const catDir = path.join(bdir, category);
+    fs.mkdirSync(catDir, { recursive: true });
+    const id = require('crypto').randomUUID();
+    const tp = type || BRAIN_CATEGORY_TYPE[category] || 'doc';
+    fs.writeFileSync(path.join(catDir, `${id}.md`), buildBrainPage(title, content, tp), 'utf-8');
+    logBrainAudit('create_page', `${pid}:${category}/${id}`, pid);
+    res.json({ success: true, data: { id, category, title: String(title).trim() } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/brain/pages/batch - 批量新增知识库页面（人工维护，直接写项目私有库）
+// body: { category, entries: [{ title, content }], type? }
+app.post('/api/brain/pages/batch', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const { category, entries, type } = req.body || {};
+    if (!category || !Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({ success: false, error: 'category 与 entries[] 必填且非空' });
+    }
+    const dirs = brainDirsFor(pid);
+    const bdir = dirs[0];
+    const catDir = path.join(bdir, category);
+    fs.mkdirSync(catDir, { recursive: true });
+    const tp = type || BRAIN_CATEGORY_TYPE[category] || 'doc';
+    const created = [];
+    for (const e of entries) {
+      const t = (e.title || '').toString().trim();
+      if (!t) continue;
+      const id = require('crypto').randomUUID();
+      fs.writeFileSync(path.join(catDir, `${id}.md`), buildBrainPage(t, e.content, tp), 'utf-8');
+      created.push({ id, category, title: t });
+    }
+    logBrainAudit('batch_create_page', `${pid}:${category}/${created.length}`, pid);
+    res.json({ success: true, data: { created: created.length, items: created } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 
 // PUT /api/brain/pages/:category/:id - 编辑知识库页面内容（人工修改已发布条目）
 app.put('/api/brain/pages/:category/:id', async (req, res) => {
@@ -1248,9 +1382,10 @@ app.post('/api/brain/pages/:category/:id/propose-edit', async (req, res) => {
   try {
     const pid = resolveProject(req);
     const { category, id } = req.params;
-    const { content, repo } = req.body || {};
-    if (!projects.CATEGORIES.includes(category)) {
-      return res.status(400).json({ success: false, error: '非法分类: ' + category });
+    const { content, repo, category: bodyCategory } = req.body || {};
+    const effectiveCategory = bodyCategory || category;
+    if (!projects.CATEGORIES.includes(effectiveCategory)) {
+      return res.status(400).json({ success: false, error: '非法分类: ' + effectiveCategory });
     }
     if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) {
       return res.status(400).json({ success: false, error: '非法页面 ID' });
@@ -1292,7 +1427,7 @@ app.post('/api/brain/pages/:category/:id/propose-edit', async (req, res) => {
       '--type', 'knowledge_edit',
       '--title', id,
       '--content', content,
-      '--metadata', JSON.stringify({ category, pageId: id, repo: origRepo, oldContent, hasRule: Boolean(ruleContent) }),
+      '--metadata', JSON.stringify({ category: effectiveCategory, originalCategory: category, pageId: id, repo: origRepo, oldContent, hasRule: Boolean(ruleContent) }),
       '--project', pid,
     ]);
     // 3) 创建质量规则草稿（关联编辑草稿）
@@ -1305,7 +1440,7 @@ app.post('/api/brain/pages/:category/:id/propose-edit', async (req, res) => {
         '--type', 'quality_rule',
         '--title', `质量规则: ${id}`,
         '--content', ruleContent,
-        '--metadata', JSON.stringify({ fromEdit: { category, pageId: id, repo: origRepo }, editDraftId: editDraft.draftId, ruleSource: ruleResult.source }),
+        '--metadata', JSON.stringify({ fromEdit: { category: effectiveCategory, originalCategory: category, pageId: id, repo: origRepo }, editDraftId: editDraft.draftId, ruleSource: ruleResult.source }),
         '--project', pid,
       ]);
     }
@@ -1715,7 +1850,7 @@ app.get('/api/wiki/api-deps', async (req, res) => {
 });
 
 function parseFrontmatter(content) {
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return null;
   const fm = {};
   for (const line of m[1].split(/\n/)) {

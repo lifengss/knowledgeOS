@@ -344,6 +344,14 @@ def cli():
     p_audit.add_argument("--page", type=int, default=1)
     p_audit.add_argument("--page-size", type=int, default=20)
 
+    # count-audit
+    p_count_audit = sub.add_parser("count-audit", help="统计审计日志总数")
+    p_count_audit.add_argument("--action", default=None)
+    p_count_audit.add_argument("--operator", default=None)
+    p_count_audit.add_argument("--target", default=None)
+    p_count_audit.add_argument("--page", type=int, default=1)
+    p_count_audit.add_argument("--page-size", type=int, default=20)
+
     # log-audit
     p_log = sub.add_parser("log-audit", help="记录审计日志")
     p_log.add_argument("--action", required=True)
@@ -376,20 +384,27 @@ def cli():
     cache = DraftCache(args.db)
 
     if args.cmd == "list":
-        filters = {}
-        if args.source:
-            filters["source"] = args.source
-        if args.type:
-            filters["type"] = args.type
+        # 统一按 project + 可选 source/type/status 组合过滤（修复：仅传 source/type 不带 status 时过滤被丢弃）
+        where = ["project_id = ?"]
+        params = [args.project]
         if args.status:
-            drafts = cache.get_drafts_by_status(args.status, filters, args.project)
-        else:
-            # 获取全部草稿（按项目隔离）
-            cursor = cache._conn.execute(
-                "SELECT * FROM drafts WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (args.project, args.limit, args.offset)
-            )
-            drafts = [cache._row_to_draft(row) for row in cursor.fetchall()]
+            where.append("status = ?")
+            params.append(args.status)
+        if args.source:
+            where.append("source = ?")
+            params.append(args.source)
+        if args.type:
+            where.append("type = ?")
+            params.append(args.type)
+        params.append(args.limit)
+        params.append(args.offset)
+        cursor = cache._conn.execute(
+            "SELECT * FROM drafts WHERE {0} ORDER BY created_at DESC LIMIT ? OFFSET ?".format(
+                " AND ".join(where)
+            ),
+            params,
+        )
+        drafts = [cache._row_to_draft(row) for row in cursor.fetchall()]
         print(json.dumps(drafts, ensure_ascii=False))
 
     elif args.cmd == "get":
@@ -453,6 +468,19 @@ def cli():
         audit.close()
         print(json.dumps(result, ensure_ascii=False))
 
+    elif args.cmd == "count-audit":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from cache.audit_log import AuditLog
+        audit = AuditLog(args.db)
+        total = audit.count(
+            action=args.action,
+            operator=args.operator,
+            target=args.target,
+        )
+        audit.close()
+        print(total)
+
     elif args.cmd == "log-audit":
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -476,7 +504,7 @@ def cli():
         filters = {}
         if args.status:
             filters["type"] = args.status
-        conflicts = cq.get_pending_conflicts(filters)
+        conflicts = cq.get_pending_conflicts(filters, project=args.project)
         cq.close()
         print(json.dumps(conflicts, ensure_ascii=False))
 
@@ -586,9 +614,10 @@ def cli():
         dashboard_stats = audit.get_stats(args.project)
         audit.close()
 
-        # 知识库页面统计：项目私有目录 + 共享目录
+        # 知识库页面统计：项目私有目录 + 共享目录（仅统计可在 /api/brain/pages 浏览的分类，与前端单源一致）
         root = Path(__file__).resolve().parent.parent
         brain_dirs = []
+        cats = ["quality-rules", "defect-experience", "project-wiki", "test-cases", "test-scripts"]
         pcfg_path = root / "config" / "projects.json"
         if pcfg_path.exists():
             pcfg = _json.loads(pcfg_path.read_text(encoding="utf-8"))
@@ -596,6 +625,8 @@ def cli():
             brain_dirs.append(root / proj["brainPath"])
             if pcfg.get("sharedBrain"):
                 brain_dirs.append(root / pcfg["sharedBrain"])
+            if pcfg.get("categories"):
+                cats = pcfg["categories"]
         else:
             brain_dirs.append(root / "brain")
 
@@ -603,20 +634,26 @@ def cli():
         total_rules = 0
         total_cases = 0
         total_defects = 0
+        seen_pages = set()
         for bd in brain_dirs:
             if not bd.exists():
                 continue
-            for cat_dir in bd.iterdir():
+            for cat_name in cats:
+                cat_dir = bd / cat_name
                 if not cat_dir.is_dir():
                     continue
-                count = len(list(cat_dir.glob("*.md")))
-                total_pages += count
-                if cat_dir.name == "quality-rules":
-                    total_rules += count
-                elif cat_dir.name == "test-cases":
-                    total_cases += count
-                elif cat_dir.name == "defect-experience":
-                    total_defects += count
+                for f in cat_dir.glob("*.md"):
+                    key = f"{cat_name}/{f.name}"
+                    if key in seen_pages:
+                        continue
+                    seen_pages.add(key)
+                    total_pages += 1
+                    if cat_name == "quality-rules":
+                        total_rules += 1
+                    elif cat_name == "test-cases":
+                        total_cases += 1
+                    elif cat_name == "defect-experience":
+                        total_defects += 1
 
         print(json.dumps({
             "project": args.project,

@@ -49,11 +49,30 @@ def _run(fn):
         return f"[错误] {type(e).__name__}: {e}"
 
 
+# 隔离 raw 溯源区 / 源文档全文页（prd-/req-/tr-）判定：不对 MCP 暴露
+_SOURCE_RE = re.compile(r'^(prd|req|tr)-')
+def _is_raw_or_source(category: str, page_id: str) -> bool:
+    for seg in (str(category).split('/') + str(page_id).split('/')):
+        if seg == 'raw':
+            return True
+    return bool(_SOURCE_RE.match(str(page_id)))
+
+
 @mcp.tool()
 def search_knowledge(query: str, project: str = "default", mode: str = "keyword",
                      limit: int = 10) -> str:
-    """检索知识库。query=检索词；project=项目ID；mode=keyword|semantic；limit=返回条数。"""
-    return _run(lambda: kb.search(query, project=project, mode=mode, limit=limit))
+    """检索知识库。query=检索词；project=项目ID；mode=keyword|semantic；limit=返回条数。
+    安全约束：结果排除隔离 raw 溯源区与源文档全文页(prd-/req-/tr-)。"""
+    out = _run(lambda: kb.search(query, project=project, mode=mode, limit=limit))
+    try:
+        data = json.loads(out) if isinstance(out, str) else out
+        if isinstance(data, dict) and isinstance(data.get("data"), list):
+            data["data"] = [x for x in data["data"]
+                            if not _is_raw_or_source(str(x.get("category", "")), str(x.get("id", "")))]
+            out = json.dumps(data, ensure_ascii=False)
+    except Exception:
+        pass
+    return out
 
 
 @mcp.tool()
@@ -71,14 +90,17 @@ def list_knowledge_pages(category: str = "all", project: str = "default",
 
 @mcp.tool()
 def get_knowledge_page(category: str, page_id: str, project: str = "default") -> str:
-    """读取单个知识页面正文。category=分类；page_id=页面ID(不含.md)。"""
+    """读取单个知识页面正文。category=分类；page_id=页面ID(不含.md)。
+    安全约束：隔离 raw 溯源区与源文档全文页(prd-/req-/tr-)不对 MCP 暴露，仅其衍生的实体/概念内容页可访问。"""
+    if _is_raw_or_source(category, page_id):
+        return json.dumps({"success": False, "error": "隔离 raw 溯源区与源文档全文页(prd/req/tr)不对 MCP 暴露；请访问其衍生的实体/概念内容页（如 entity-*）。"}, ensure_ascii=False)
     return _run(lambda: kb.get_page(category, page_id, project=project))
 
 
 @mcp.tool()
-def get_knowledge_graph(project: str = "default") -> str:
-    """获取知识图谱（节点与边），用于理解 API/函数调用关系。"""
-    return _run(lambda: kb.graph_data(project=project))
+def get_knowledge_graph(project: str = "default", mode: str = "api") -> str:
+    """获取知识图谱（节点与边）。mode=api（默认，理解 API/函数调用依赖）或 entity（项目实体图谱，用于知识图谱扩展）。"""
+    return _run(lambda: kb.graph_data(project=project, mode=mode))
 
 
 @mcp.tool()
@@ -142,6 +164,8 @@ def tfidf_code_slicer(project: str = "default", category: str = "all",
         items = pages.get("data", [])[:max_pages]
         docs = []
         for p in items:
+            if _is_raw_or_source(p.get("category", ""), p.get("id", "")):
+                continue
             full = kb.get_page(p["category"], p["id"], project=project)
             content = full.get("data", {}).get("content", "") if full.get("success") else ""
             docs.append({

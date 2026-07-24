@@ -53,6 +53,22 @@ def _resolve_brain_dir(project_id: str = "default") -> Path:
     return PROJECT_DIR / "brain"
 
 
+def _standard_categories(project_id: str = "default") -> list:
+    """返回项目允许写入的标准 Brain 分类（来自 config/projects.json 的 categories）。
+
+    用于入库时校验目标分类，禁止诞生非标准标签（如 defect_rule）。
+    """
+    pcfg = PROJECT_DIR / "config" / "projects.json"
+    if pcfg.exists():
+        try:
+            cfg = json.loads(pcfg.read_text(encoding="utf-8"))
+            if cfg.get("categories"):
+                return list(cfg["categories"])
+        except Exception:
+            pass
+    return ["quality-rules", "defect-experience", "project-wiki", "test-cases", "test-scripts"]
+
+
 def _write_to_brain(brain_dir: Path, slug: str, content: str) -> bool:
     """将页面写入项目私有 Brain 仓库的对应分类目录（文件系统）。"""
     try:
@@ -204,8 +220,21 @@ def batch_commit(
                 # 所见即所得：直接写用户编辑内容（不包裹 frontmatter）
                 page_content = draft.get("content", "")
                 success = _write_to_brain(brain_dir_edit, slug, page_content)
+                # 重分类移动：目标分类与原分类不同则删除原文件（严格移动，不留旧文件）
+                original_category = metadata.get("originalCategory") or ""
+                if success and original_category and original_category != category:
+                    orig_path = os.path.join(brain_dir_edit, original_category, f"{page_id}.md")
+                    try:
+                        if os.path.exists(orig_path):
+                            os.remove(orig_path)
+                    except OSError:
+                        pass  # 旧文件删除失败不阻断主流程（新文件已写入）
             else:
                 brain_type = BRAIN_TYPE_MAP.get(draft_type, draft_type)
+                # 禁止诞生非标准分类（如 defect_rule）：目标目录必须是项目标准分类之一
+                if brain_type not in _standard_categories(project):
+                    failed.append(draft_id)
+                    continue
                 slug = f"{brain_type}/{draft_id}"
                 page_content = _build_page_content(draft)
                 success = _write_to_brain(brain_dir, slug, page_content)

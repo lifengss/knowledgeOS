@@ -27,6 +27,9 @@
 
 - 查询成功：`success=true`，结果在 `data`；
 - 失败：`success=false`，`error` 含原因。
+- 列表 / 分页接口：`data` 必须为对象信封 `{ items: [...], total: number, page?, pageSize? }`，**禁止直接返回裸数组**；前端统一通过 `res.data.items` 读取列表、`res.data.total` 读取总数。
+- 响应字段命名：与对应接口的"响应示例"逐字段一致，**禁止同义字段混用**。已知约定：审计记录时间戳字段为 `created_at`（带时区 ISO）；草稿时间戳字段为 `createdAt`（由 `DraftCache._row_to_draft` 导出）；两者不得混用。
+- 查询参数命名：分页等参数名**以各接口下方参数表为准，禁止跨接口套用**。例如审计日志用 `page`/`pageSize`，草稿 / 冲突 / 知识库用 `limit`/`offset`；前端必须按所属接口文档传参（如审计日志不能传 `limit`）。
 
 ### 1.2 多项目隔离
 
@@ -863,7 +866,7 @@ curl -X PUT http://localhost:3000/api/brain/pages/quality-rules/a1b2c3 \
 
 ### POST /api/brain/pages/:category/:id/propose-edit
 
-**功能**：人工编辑优化闭环（设计"链路 3a"）。人工修改已发布页面时**不直接写盘**，而是生成两条草稿：A. 知识条目修改草稿（type=knowledge_edit，确认入库后写回原仓库页面）；B. 质量规则草稿（type=quality_rule，由 old/new 对比自动提炼，进草稿箱待确认）。
+**功能**：人工编辑优化闭环（设计"链路 3a"）。人工修改已发布页面时**不直接写盘**，而是生成两条草稿：A. 知识条目修改草稿（type=knowledge_edit，确认入库后写回原仓库页面或 body.category 指定的重分类目标）；B. 质量规则草稿（type=quality_rule，由 old/new 对比自动提炼，进草稿箱待确认）。body 可选 `category` 为重分类目标，缺省写回原分类。
 
 | 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
@@ -872,6 +875,7 @@ curl -X PUT http://localhost:3000/api/brain/pages/quality-rules/a1b2c3 \
 | content | body | 是 | 新 Markdown 正文 |
 | repo | body | 否 | 原仓库标识（brain/_shared），缺省按原文件所在仓库 |
 | project | body | 否 | 项目隔离，默认 default |
+| category | body | 否 | 重分类目标（须为合法分类），缺省写回原分类；改选后编辑内容落至所选分类目录 |
 
 **请求示例**：
 
