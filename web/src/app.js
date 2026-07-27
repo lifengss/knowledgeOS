@@ -148,7 +148,13 @@ function showToast({ message, type = 'info', duration = 3200 }) {
   const c = ensureToastContainer();
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '!' : 'ℹ';
+  const icon = type === 'success'
+    ? '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+    : type === 'error'
+    ? '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
+    : type === 'warning'
+    ? '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
+    : '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
   el.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg"></span>`;
   el.querySelector('.toast-msg').textContent = message;
   c.appendChild(el);
@@ -170,7 +176,7 @@ function showProgress({ title = '处理中', message = '' }) {
     update(msg) { const m = el.querySelector('.toast-prog-msg'); if (m && msg != null) m.textContent = msg; },
     done(msg, type = 'success') {
       const body = el.querySelector('.toast-prog-body');
-      if (body) body.innerHTML = `<div class="toast-prog-title">${type === 'success' ? '✓ ' : ''}${escapeHtml(title)}</div><div class="toast-prog-msg">${escapeHtml(msg || '')}</div>`;
+      if (body) body.innerHTML = `<div class="toast-prog-title">${type === 'success' ? '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:-2px"><polyline points="20 6 9 17 4 12"></polyline></svg> ' : ''}${escapeHtml(title)}</div><div class="toast-prog-msg">${escapeHtml(msg || '')}</div>`;
       el.classList.remove('toast-progress'); el.classList.add('toast-' + type);
       const sp = el.querySelector('.toast-spinner'); if (sp) sp.remove();
       setTimeout(() => { el.classList.remove('toast-show'); setTimeout(() => el.remove(), 250); }, 3000);
@@ -1624,7 +1630,7 @@ function openEditModal({ title = '编辑', initialTitle = '', initialContent = '
     <div class="modal-box edit-modal">
       <div class="modal-header">
         <span>${escapeHtml(title)}</span>
-        <button class="modal-close" aria-label="关闭">×</button>
+        <button class="modal-close" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="modal-body">
         ${showTitle ? `<div class="edit-field"><label>标题</label><input type="text" class="edit-title" value="${escapeHtml(initialTitle)}" /></div>` : ''}
@@ -1679,7 +1685,7 @@ function openViewModal({ title = '查看', content = '', html, onEdit }) {
     <div class="modal-box view-modal">
       <div class="modal-header">
         <span>${escapeHtml(title)}</span>
-        <button class="modal-close" aria-label="关闭">×</button>
+        <button class="modal-close" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="modal-body">
         ${html ? `<div class="view-content md wiki-md">${html}</div>` : `<pre class="view-content">${escapeHtml(content)}</pre>`}
@@ -1883,7 +1889,7 @@ function openCreatePageModal() {
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal-box">
-      <div class="modal-header"><span>新增知识库条目</span><button class="modal-close" aria-label="关闭">×</button></div>
+      <div class="modal-header"><span>新增知识库条目</span><button class="modal-close" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
       <div class="modal-body">
         <div class="form-row">
           <label>分类</label>
@@ -1937,7 +1943,7 @@ function openBatchCreateModal() {
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal-box">
-      <div class="modal-header"><span>批量新增知识库条目</span><button class="modal-close" aria-label="关闭">×</button></div>
+      <div class="modal-header"><span>批量新增知识库条目</span><button class="modal-close" aria-label="关闭"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
       <div class="modal-body">
         <div class="form-row">
           <label>分类</label>
@@ -3634,7 +3640,7 @@ function bizflowSelectNode(id) {
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
       <h3 style="margin:0;font-size:15px;line-height:1.3;">${escapeHtml(n.id)} · ${escapeHtml(n.title)}</h3>
-      <button class="btn btn-secondary btn-sm" onclick="bizflowSelectNode(null)">×</button>
+      <button class="btn btn-secondary btn-sm" onclick="bizflowSelectNode(null)"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
       <span class="tag" style="background:${n.color}33;color:${n.color};">${escapeHtml(n.domain)}</span>
@@ -3700,7 +3706,7 @@ function bizflowOpenSourcePicker() {
     const html =
       `<div class="modal-mask" id="bizflow-picker-mask">
          <div class="modal-card">
-           <div class="modal-head">选择生成素材（项目 Wiki）<button class="modal-close" onclick="bizflowClosePicker()">×</button></div>
+           <div class="modal-head">选择生成素材（项目 Wiki）<button class="modal-close" onclick="bizflowClosePicker()"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
            <div class="modal-body"><div class="biz-pick-list">${items}</div></div>
            <div class="modal-foot">
              <label class="bizflow-ai-label"><input type="checkbox" id="bizflow-picker-ai" checked/> AI 业务分析</label>
@@ -3740,7 +3746,7 @@ async function bizflowGenerateFromSources() {
     if (st) st.textContent = '生成中（' + sources.length + ' 个素材）…';
     await apiPost('/business-graph', { ai: useAi, sources });
     bizflowClosePicker();
-    await bizflowRender();
+    await renderBizflow();
     if (st) st.textContent = '已基于 ' + sources.length + ' 个素材生成';
   } catch (e) {
     if (st) st.textContent = '生成失败：' + (e && e.message ? e.message : e);
