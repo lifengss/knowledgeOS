@@ -10,7 +10,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { spawn } = require('child_process');
+const os = require('os');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const multer = require('multer');
 const iconv = require('iconv-lite');
@@ -88,8 +89,10 @@ const upload = multer({ storage: uploadStorage });
 
 // 中间件
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// 放宽 JSON body 上限：业务流程与依赖图谱的「选择素材生成」会一次性提交多个
+// Wiki 页面内容，默认 100kb 上限极易触发 413。放大到 10mb 以免素材模式被拒绝。
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // 静态文件：Web UI
 app.use(express.static(path.join(PROJECT_ROOT, 'web')));
@@ -153,6 +156,129 @@ function resolveProject(req) {
 function brainDirsFor(pid) {
   return projects.resolveBrainDirs(pid).map((d) => d.replace(/\\/g, '/'));
 }
+
+// ---------------------------------------------------------------------------
+// AI CLI 登录态管理（默认 CodeBuddy CLI，预留多 provider 扩展）
+// 后端仅负责"检测登录态"与"触发登录"（派生 CLI 打开浏览器 OAuth）。
+// 凭证由 CodeBuddy CLI 自身持久化在用户配置目录，天然一次登录、后续免登。
+// ---------------------------------------------------------------------------
+const AI_CLI_PROVIDERS = {
+  codebuddy: {
+    id: 'codebuddy',
+    name: 'CodeBuddy CLI',
+    default: true,
+    resolve: () => {
+      if (process.env.CODEBUDDY_CODE_PATH) return process.env.CODEBUDDY_CODE_PATH;
+      try {
+        const g = spawnSync('npm', ['root', '-g'], { encoding: 'utf-8', shell: true });
+        const groot = (g.stdout || '').trim();
+        const p = path.join(groot, '@tencent-ai', 'codebuddy-code', 'bin', 'codebuddy');
+        if (groot && fs.existsSync(p)) return p;
+      } catch (_) {}
+      try {
+        const w = spawnSync(process.platform === 'win32' ? 'where' : 'command',
+          process.platform === 'win32' ? ['codebuddy'] : ['-v', 'codebuddy'],
+          { encoding: 'utf-8', shell: true }).stdout.toString().trim().split(/\r?\n/)[0];
+        if (w) return w;
+      } catch (_) {}
+      return 'codebuddy'; // PATH 兜底
+    },
+  },
+};
+
+function _codebuddyTokenCandidates() {
+  const home = os.homedir();
+  const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+  return [
+    path.join(home, '.codebuddy', 'credentials.json'),
+    path.join(home, '.codebuddy', 'auth.json'),
+    path.join(home, '.codebuddy', 'session.json'),
+    path.join(appData, 'CodeBuddy', 'credentials.json'),
+    path.join(appData, 'codebuddy', 'credentials.json'),
+    path.join(home, '.config', 'codebuddy', 'credentials.json'),
+  ];
+}
+function _hasCodebuddyToken() {
+  return _codebuddyTokenCandidates().some((c) => {
+    try { return fs.existsSync(c) && fs.statSync(c).size > 0; } catch (_) { return false; }
+  });
+}
+function _spawnCli(script, args, opts) {
+  if (script && script !== 'codebuddy' && fs.existsSync(script)) {
+    const lower = script.toLowerCase();
+    if (lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.ps1') || lower.endsWith('.exe')) {
+      return spawn(script, args, opts);
+    }
+    return spawn(process.execPath, [script, ...args], opts);
+  }
+  return spawn(script, args, Object.assign({ shell: true }, opts || {}));
+}
+function _runCli(script, args, timeoutMs) {
+  return new Promise((resolve) => {
+    let out = '';
+    let done = false;
+    const cp = _spawnCli(script, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const onData = (d) => { out += d.toString(); };
+    cp.stdout.on('data', onData);
+    cp.stderr.on('data', onData);
+    const finish = (code) => { if (done) return; done = true; clearTimeout(timer); resolve({ code, out }); };
+    cp.on('close', finish);
+    cp.on('error', () => finish(-1));
+    const timer = setTimeout(() => { try { cp.kill(); } catch (_) {} finish(-2); }, timeoutMs || 20000);
+  });
+}
+async function _resolveAndCheckInstalled(prov) {
+  const script = prov.resolve();
+  if (script && script !== 'codebuddy') {
+    return { script, installed: fs.existsSync(script) };
+  }
+  const v = await _runCli('codebuddy', ['--version'], 8000);
+  return { script: 'codebuddy', installed: v.code === 0 && !/not recognized|not found|unknown command/i.test(v.out) };
+}
+async function checkAiCliStatus(provider) {
+  const prov = AI_CLI_PROVIDERS[provider] || AI_CLI_PROVIDERS.codebuddy;
+  const { script, installed } = await _resolveAndCheckInstalled(prov);
+  if (!installed) {
+    return { provider: prov.id, name: prov.name, installed: false, loggedIn: false, status: 'not_installed', message: '未检测到 CodeBuddy CLI，请先执行：npm i -g @tencent-ai/codebuddy-code' };
+  }
+  const r = await _runCli(script, ['auth', 'status'], 20000);
+  const o = (r.out || '').toLowerCase();
+  let loggedIn = null;
+  if (/(logged in|已登录|authenticated|登录有效|token.*valid|session.*valid)/.test(o)) loggedIn = true;
+  else if (/(not logged|未登录|no (valid )?token|please log ?in|请登录|expired|unauthorized)/.test(o)) loggedIn = false;
+  if (loggedIn === null) loggedIn = _hasCodebuddyToken();
+  const status = loggedIn ? 'logged_in' : 'not_logged_in';
+  let message;
+  if (loggedIn) message = '已登录，AI CLI 能力可用（一次登录，后续无需重复）';
+  else message = (r.out && r.out.trim()) ? r.out.trim().slice(0, 200) : '未登录，请点击下方「登录」按钮在浏览器中完成授权';
+  return { provider: prov.id, name: prov.name, installed: true, loggedIn, status, message };
+}
+function startAiCliLogin(provider) {
+  const prov = AI_CLI_PROVIDERS[provider] || AI_CLI_PROVIDERS.codebuddy;
+  return (async () => {
+    const { script, installed } = await _resolveAndCheckInstalled(prov);
+    if (!installed) return { success: false, error: '未检测到 CodeBuddy CLI，请先安装：npm i -g @tencent-ai/codebuddy-code' };
+    try {
+      const child = _spawnCli(script, ['login'], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return { success: true, message: '已在默认浏览器打开 CodeBuddy 登录页，请完成授权（一次性，令牌将持久保存）' };
+    } catch (e) {
+      return { success: false, error: String((e && e.message) || e) };
+    }
+  })();
+}
+app.get('/api/ai-cli/status', async (req, res) => {
+  try {
+    const s = await checkAiCliStatus((req.query && req.query.provider) || 'codebuddy');
+    res.json({ success: true, data: s });
+  } catch (e) {
+    res.json({ success: false, error: String((e && e.message) || e) });
+  }
+});
+app.post('/api/ai-cli/login', async (req, res) => {
+  const r = await startAiCliLogin((req.body && req.body.provider) || 'codebuddy');
+  res.json(r.success ? r : Object.assign({ success: false }, r));
+});
 
 // GET /api/projects - 返回多项目配置，供前端枚举与切换知识库
 app.get('/api/projects', async (req, res) => {
@@ -1969,6 +2095,24 @@ function guessModule(funcName, fallback) {
   }
   return fallback || 'api-unknown';
 }
+
+// ---------------------------------------------------------------
+// 统一 JSON 错误处理器（必须放在所有路由之后）
+// 确保任何异常 / 解析错误（如请求体过大 413、JSON 解析失败等）返回 JSON
+// 而非 HTML 错误页。否则前端 fetch().json() 解析 <!DOCTYPE ... 时会抛
+// "Unexpected token '<', "<!DOCTYPE "... is not valid JSON"。
+// ---------------------------------------------------------------
+app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  const status =
+    err.status ||
+    err.statusCode ||
+    (typeof err.type === 'string' && err.type.startsWith('entity.') ? 413 : 500);
+  const message = err.message || '服务器内部错误';
+  res.status(status).json({ success: false, error: message });
+});
 
 // ---------------------------------------------------------------
 // 启动服务器

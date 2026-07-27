@@ -594,25 +594,45 @@ const pageTemplates = {
     return `
       <div class="section">
         <h3 class="section-title">业务流程与依赖知识图谱</h3>
-        <p class="muted" style="margin-bottom:14px;">业务步骤节点、依赖关系与可测试场景的可视化。生成测试用例时可据此理解业务上下文与调用链路。</p>
-        <div id="bizflow-toolbar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-          <select id="bizflow-scenario" class="input" style="max-width:300px;" onchange="bizflowHighlightScenario(this.value)">
-            <option value="">— 选择可测试场景高亮 —</option>
-          </select>
-          <input id="bizflow-search" class="input" style="max-width:220px;" placeholder="搜索步骤 id / 名称…" oninput="bizflowFilter(this.value)">
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);">
-            <input type="checkbox" id="bizflow-ai" checked> AI 业务分析
-          </label>
-          <button class="btn btn-primary btn-sm" onclick="bizflowRegenerate()">重新生成</button>
-          <button class="btn btn-accent btn-sm" onclick="bizflowOpenSourcePicker()">选择素材生成</button>
-          <button class="btn btn-secondary btn-sm" onclick="bizflowReset()">重置视图</button>
-          <span id="bizflow-status" class="muted" style="font-size:12px;"></span>
-        </div>
-        <div id="bizflow-container" style="position:relative;height:660px;background:radial-gradient(1200px 600px at 50% -10%, rgba(99,102,241,.10), transparent 60%), var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-          <svg id="bizflow-svg" style="width:100%;height:100%;cursor:grab;display:block;"></svg>
-          <div id="bizflow-legend" style="position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-muted);background:rgba(15,18,28,.6);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:10px;padding:10px 12px;max-height:240px;overflow:auto;"></div>
-          <div id="bizflow-detail" style="position:absolute;right:14px;top:14px;width:330px;max-height:calc(100% - 28px);overflow:auto;background:rgba(15,18,28,.74);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--text);display:none;box-shadow:var(--shadow);"></div>
-          <div id="bizflow-tooltip" style="position:absolute;display:none;background:var(--card-solid);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;pointer-events:none;z-index:20;border:1px solid var(--border);box-shadow:var(--shadow);font-weight:500;white-space:nowrap;"></div>
+        <p class="muted" style="margin:-6px 0 16px;">从「项目 Wiki」选取 PRD / API 接口协议等素材，生成业务步骤依赖图谱与可测试场景。生成测试用例时可据此理解业务上下文与调用链路。</p>
+        <div class="bizflow-layout">
+          <div class="bizflow-main">
+            <div class="bizflow-toolbar">
+              <div class="bizflow-toolbar-left">
+                <select id="bizflow-scenario" class="input input-sm" onchange="bizflowHighlightScenario(this.value)">
+                  <option value="">— 选择可测试场景高亮 —</option>
+                </select>
+                <input id="bizflow-search" class="input input-sm" style="width:200px;" placeholder="搜索步骤 id / 名称…" oninput="bizflowFilter(this.value)">
+              </div>
+              <div class="bizflow-toolbar-right">
+                <button class="btn btn-secondary btn-sm" onclick="bizflowReset()">重置视图</button>
+                <span id="bizflow-status" class="bizflow-status"></span>
+              </div>
+            </div>
+            <div id="bizflow-container" class="bizflow-container">
+              <svg id="bizflow-svg" style="width:100%;height:100%;cursor:grab;display:block;"></svg>
+              <div id="bizflow-legend" style="position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-muted);background:rgba(15,18,28,.6);backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:10px;padding:10px 12px;max-height:240px;overflow:auto;"></div>
+              <div id="bizflow-detail" style="position:absolute;right:14px;top:14px;width:330px;max-height:calc(100% - 28px);overflow:auto;background:rgba(15,18,28,.74);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--text);display:none;box-shadow:var(--shadow);"></div>
+              <div id="bizflow-tooltip" style="position:absolute;display:none;background:var(--card-solid);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;pointer-events:none;z-index:20;border:1px solid var(--border);box-shadow:var(--shadow);font-weight:500;white-space:nowrap;"></div>
+            </div>
+          </div>
+          <aside class="bizflow-side">
+            <div class="bizflow-side-head">
+              <strong>生成素材</strong>
+              <span class="bizflow-side-hint">从项目 Wiki 选取</span>
+            </div>
+            <div id="bizflow-sources" class="bizflow-sources"></div>
+            <button class="bizflow-add" onclick="bizflowAddSource()">
+              <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              添加素材
+            </button>
+            <div class="bizflow-divider"></div>
+            <label class="bizflow-ai-row">
+              <input type="checkbox" id="bizflow-ai" checked/>
+              <span>AI 业务分析（关闭则仅用确定性骨架）</span>
+            </label>
+            <button id="bizflow-gen" class="btn btn-primary btn-block" onclick="bizflowGenerate()">生成依赖图谱</button>
+          </aside>
         </div>
       </div>
     `;
@@ -650,11 +670,12 @@ const pageTemplates = {
           <h3 class="section-title">系统设置</h3>
           <p style="color:var(--text-muted);margin-bottom:16px;">配置 AI 平台对接与 GBrain 大模型（用于 Wiki 摘要、实体抽取、目录生成等智能能力）。配置保存在服务端 <code>ai_config.json</code>。</p>
           <div class="settings-layout">
-            <nav class="settings-nav">
-              <a class="settings-nav-item active" data-target="settings-ai" onclick="settingsNavClick('settings-ai')">AI 平台对接</a>
-              <a class="settings-nav-item" data-target="settings-gbrain" onclick="settingsNavClick('settings-gbrain')">GBrain 大模型</a>
-              <a class="settings-nav-item" data-target="settings-storage" onclick="settingsNavClick('settings-storage')">知识库落库路径</a>
-            </nav>
+              <nav class="settings-nav">
+                <a class="settings-nav-item active" data-target="settings-ai" onclick="settingsNavClick('settings-ai')">AI 平台对接</a>
+                <a class="settings-nav-item" data-target="settings-gbrain" onclick="settingsNavClick('settings-gbrain')">GBrain 大模型</a>
+                <a class="settings-nav-item" data-target="settings-storage" onclick="settingsNavClick('settings-storage')">知识库落库路径</a>
+                <a class="settings-nav-item" data-target="settings-aicli" onclick="settingsNavClick('settings-aicli')">AI CLI 登录</a>
+              </nav>
             <div class="settings-body">
               <section class="settings-section" id="settings-ai">
                 <h4 class="settings-section-title">AI 平台对接</h4>
@@ -698,6 +719,22 @@ const pageTemplates = {
                   <label>知识库根目录 (Knowledge Base Path)</label>
                   <input id="kb-path" class="form-input" value="${f('kb-path', kbPath)}" placeholder="例如 D:\\gbrain_home" style="margin-top:6px;">
                   <p class="hint" style="margin-top:8px;">该路径为知识库（GBrain）落库根目录。修改并保存后，GBrain 的 <code>.gbrain</code> 数据会自动迁移到 <code>&lt;本路径&gt;/.gbrain</code>，并同步更新系统环境变量 <code>GBRAIN_HOME</code>。KS 自身知识库位于 <code>${kroot}</code>（已在 D 盘、随项目固定，不随本项变更迁移）。</p>
+                </div>
+              </section>
+              <section class="settings-section" id="settings-aicli">
+                <h4 class="settings-section-title">AI CLI 登录（CodeBuddy）</h4>
+                <div class="card settings-card">
+                  <div class="ai-cli-row">
+                    <span class="badge" id="aiCliBadge">检测中…</span>
+                    <span id="aiCliName">CodeBuddy CLI</span>
+                  </div>
+                  <p class="hint" id="aiCliMsg">正在检测登录状态…</p>
+                  <div class="settings-actions">
+                    <button class="btn btn-primary btn-sm" id="aiCliLogin" style="display:none" onclick="aiCliLogin()">登录</button>
+                    <button class="btn btn-secondary btn-sm" onclick="loadAiCliStatus()">刷新状态</button>
+                    <span id="aiCliStat"></span>
+                  </div>
+                  <p class="hint" style="margin-top:8px;">默认使用 CodeBuddy CLI 作为 AI 通道；后续可扩展其它 CLI。登录为一次性浏览器授权，令牌由 CLI 持久保存，后续无需重复登录。</p>
                 </div>
               </section>
               <div class="settings-actions">
@@ -1135,6 +1172,8 @@ async function renderPage(page) {
         setTimeout(() => renderVerify(), 50);
       } else if (page === 'tutorial') {
         setTimeout(() => tutorialAutoLoad(), 60);
+      } else if (page === 'settings') {
+        setTimeout(() => loadAiCliStatus(), 50);
       }
     } catch (err) {
       contentEl.innerHTML = errorBox('页面渲染失败: ' + err.message);
@@ -2719,6 +2758,50 @@ async function saveSettings() {
   setTimeout(() => { if (msg) msg.textContent = ''; }, 3000);
 }
 
+// AI CLI 登录态（设置页内）
+async function loadAiCliStatus() {
+  const badge = document.getElementById('aiCliBadge');
+  const msg = document.getElementById('aiCliMsg');
+  const loginBtn = document.getElementById('aiCliLogin');
+  const stat = document.getElementById('aiCliStat');
+  if (!badge) return;
+  badge.textContent = '检测中…'; badge.style.background = '#3a4250'; badge.style.color = '#fff';
+  if (loginBtn) loginBtn.style.display = 'none';
+  try {
+    const res = await apiGet('/api/ai-cli/status');
+    const d = res && res.success ? res.data : null;
+    if (!d || !d.status) { badge.textContent = '检测失败'; badge.style.background = '#b45309'; return; }
+    const map = {
+      logged_in: { t: '已登录', c: '#16a34a' },
+      not_logged_in: { t: '未登录', c: '#dc2626' },
+      not_installed: { t: 'CLI 未安装', c: '#b45309' },
+    };
+    const m = map[d.status] || { t: d.status, c: '#3a4250' };
+    badge.textContent = m.t; badge.style.background = m.c;
+    if (msg) msg.textContent = d.message || '';
+    if (loginBtn) loginBtn.style.display = (d.status === 'logged_in') ? 'none' : '';
+    if (stat) stat.textContent = '';
+  } catch (e) {
+    badge.textContent = '检测失败'; badge.style.background = '#b45309';
+    if (stat) stat.textContent = '请求失败: ' + (e && e.message ? e.message : e);
+  }
+}
+async function aiCliLogin() {
+  const stat = document.getElementById('aiCliStat');
+  const loginBtn = document.getElementById('aiCliLogin');
+  if (stat) stat.textContent = '正在打开浏览器登录…';
+  if (loginBtn) loginBtn.disabled = true;
+  try {
+    const res = await apiPost('/api/ai-cli/login', {});
+    if (stat) stat.textContent = (res && res.message) || (res && res.error) || (res && res.success ? '已触发登录' : '登录失败');
+  } catch (e) {
+    if (stat) stat.textContent = '请求失败: ' + (e && e.message ? e.message : e);
+  } finally {
+    if (loginBtn) loginBtn.disabled = false;
+    setTimeout(loadAiCliStatus, 1500);
+  }
+}
+
 // ---------------------------------------------------------------
 // 路由
 // ---------------------------------------------------------------
@@ -3321,6 +3404,9 @@ async function initBizflow() {
     const st = document.getElementById('bizflow-status');
     if (st) st.textContent = `${bizflow.nodes.length} 节点 / ${bizflow.edges.length} 边 / ${bizflow.flows.length} 场景`;
     renderBizflowLegend();
+    bizflowInitSources();
+    const genBtn = document.getElementById('bizflow-gen');
+    if (genBtn) genBtn.textContent = '生成依赖图谱';
   } catch (err) {
     container.innerHTML = '<div class="error-box">加载失败: ' + escapeHtml(err.message) + '</div>';
   }
@@ -3669,56 +3755,131 @@ function bizflowFilter(q) {
   updateBizflow();
 }
 
-async function bizflowRegenerate() {
-  const st = document.getElementById('bizflow-status');
-  const aiEl = document.getElementById('bizflow-ai');
-  const useAi = aiEl ? aiEl.checked : true;
-  if (st) st.textContent = '生成中…';
-  try {
-    const res = await apiPost('/business-graph', { ai: useAi });
-    const d = res && res.data ? res.data : {};
-    if (st) st.textContent = '已生成（源=' + (d.source || '?') + '，' +
-      (d.nodes || 0) + ' 节点 / ' + (d.edges || 0) + ' 边 / ' + (d.flows || 0) + ' 场景）';
-    const g = await apiGet('/business-graph');
-    if (g && g.data) {
-      bizflow = buildBizflowModel(g.data);
-      renderBizflow();
-      const sel = document.getElementById('bizflow-scenario');
-      if (sel) sel.innerHTML = '<option value="">— 选择可测试场景高亮 —</option>' +
-        bizflow.flows.map(f => `<option value="${f.id}">${escapeHtml(f.id)} · ${escapeHtml(f.name)}</option>`).join('');
-    }
-  } catch (e) {
-    if (st) st.textContent = '生成失败：' + (e && e.message ? e.message : e);
-  }
+// 选择素材生成：弹框列出项目 Wiki 页面，勾选后仅基于所选素材生成业务图谱
+// 右侧素材面板：每个素材框对应一个项目 Wiki 页面；首个默认 PRD，后续可添加 API 协议等
+function bizflowSourceBoxHtml(kind) {
+  const isPrd = kind === 'prd';
+  const label = isPrd ? 'PRD 文档' : 'API 接口协议 / 规范文档';
+  const placeholder = isPrd
+    ? '点击「选取素材」从项目 Wiki 选择 PRD 文档'
+    : '点击「选取素材」从项目 Wiki 选择 API 接口协议或规范文档';
+  return `
+    <div class="bizflow-source" data-kind="${kind}">
+      <div class="bizflow-source-top">
+        <span class="bizflow-source-kind">${label}</span>
+        <button class="bizflow-source-del" title="移除该素材" onclick="bizflowRemoveSource(this)"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="bizflow-source-row">
+        <input class="input bizflow-source-input" readonly placeholder="${placeholder}"/>
+        <button class="btn btn-secondary btn-sm" onclick="bizflowPickSource(this)">选取素材</button>
+      </div>
+    </div>`;
 }
 
-// 选择素材生成：弹框列出项目 Wiki 页面，勾选后仅基于所选素材生成业务图谱
-function bizflowOpenSourcePicker() {
-  apiGet('/brain/pages?category=project-wiki&limit=1000').then(r => {
+function bizflowInitSources() {
+  const wrap = document.getElementById('bizflow-sources');
+  if (wrap) wrap.innerHTML = bizflowSourceBoxHtml('prd');
+}
+
+function bizflowAddSource() {
+  const wrap = document.getElementById('bizflow-sources');
+  if (!wrap) return;
+  wrap.insertAdjacentHTML('beforeend', bizflowSourceBoxHtml('api'));
+}
+
+function bizflowRemoveSource(btn) {
+  const box = btn.closest('.bizflow-source');
+  const wrap = document.getElementById('bizflow-sources');
+  if (box && wrap && wrap.querySelectorAll('.bizflow-source').length > 1) box.remove();
+}
+
+// 按 Wiki 页面 id 前缀归类的文档类型（与 loadWikiIndex 的分组保持一致）
+function bizflowGroupOf(id) {
+  if (id.startsWith('api-')) return 'api';
+  if (id.startsWith('prd-')) return 'prd';
+  if (id.startsWith('req-')) return 'req';
+  if (id.startsWith('entity-')) return 'entity';
+  return 'other';
+}
+const BIZFLOW_GROUP_LABELS = { prd: 'PRD 文档', req: '需求文档', api: 'API 协议', entity: '实体抽取', other: '其它' };
+const BIZFLOW_GROUP_ORDER = ['prd', 'req', 'api', 'entity', 'other'];
+
+async function bizflowPickSource(btn) {
+  const box = btn.closest('.bizflow-source');
+  if (!box) return;
+  window._bizflowTargetBox = box;
+  try {
+    const r = await apiGet('/brain/pages?category=project-wiki&limit=1000');
     const list = (r && r.data) ? r.data : [];
     if (!list.length) {
       alert('当前项目 Wiki 暂无页面，请先在「项目 Wiki」中录入架构 / PRD / API 文档。');
       return;
     }
-    const items = list.map(p =>
-      `<label class="biz-pick-item"><input type="checkbox" class="biz-pick-cb" value="${encodeURIComponent(p.id)}"/> <span>${escapeHtml(p.title || p.id)}</span></label>`
-    ).join('');
+    const items = list.map(p => {
+      const g = bizflowGroupOf(p.id);
+      return `<label class="biz-pick-item" data-group="${g}"><input type="radio" name="bizpick" class="biz-pick-radio" value="${encodeURIComponent(p.id)}" data-category="${encodeURIComponent(p.category || 'project-wiki')}" data-title="${encodeURIComponent(p.title || p.id)}"/> <span>${escapeHtml(p.title || p.id)}</span> <span class="biz-pick-cat">${escapeHtml(p.category || '')}</span></label>`;
+    }).join('');
+    // 第二个及以后（API 协议/规范类）素材框默认按文档类别自动筛选 Wiki 列表
+    const boxKind = box.dataset.kind || 'all';
+    const present = BIZFLOW_GROUP_ORDER.filter(g => list.some(p => bizflowGroupOf(p.id) === g));
+    const defaultFilter = (boxKind === 'api' || boxKind === 'prd' || boxKind === 'req' || boxKind === 'entity') ? boxKind : 'all';
+    const opts = ['<option value="all">全部文档</option>']
+      .concat(present.map(g => `<option value="${g}" ${g === defaultFilter ? 'selected' : ''}>${BIZFLOW_GROUP_LABELS[g] || g}</option>`))
+      .join('');
     const html =
       `<div class="modal-mask" id="bizflow-picker-mask">
          <div class="modal-card">
-           <div class="modal-head">选择生成素材（项目 Wiki）<button class="modal-close" onclick="bizflowClosePicker()"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+           <div class="modal-head">
+             <span>选择素材（项目 Wiki）</span>
+             <span class="biz-pick-filter-wrap">
+               <select id="biz-pick-filter" class="input input-sm" onchange="bizflowFilterPick()">${opts}</select>
+               <button class="modal-close" onclick="bizflowClosePicker()"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+             </span>
+           </div>
            <div class="modal-body"><div class="biz-pick-list">${items}</div></div>
            <div class="modal-foot">
-             <label class="bizflow-ai-label"><input type="checkbox" id="bizflow-picker-ai" checked/> AI 业务分析</label>
-             <button class="btn btn-primary btn-sm" onclick="bizflowGenerateFromSources()">用所选素材生成</button>
+             <button class="btn btn-primary btn-sm" onclick="bizflowConfirmPick()">确认选择</button>
              <button class="btn btn-secondary btn-sm" onclick="bizflowClosePicker()">取消</button>
            </div>
          </div>
        </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
-  }).catch(e => {
+    bizflowFilterPick(); // 按框类型默认筛选一次
+  } catch (e) {
     alert('加载 Wiki 页面失败：' + (e && e.message ? e.message : e));
+  }
+}
+
+// 素材选择弹框：按文档类别（prd/api/req 等）即时筛选列表
+function bizflowFilterPick() {
+  const mask = document.getElementById('bizflow-picker-mask');
+  if (!mask) return;
+  const sel = mask.querySelector('#biz-pick-filter');
+  if (!sel) return;
+  const val = sel.value;
+  mask.querySelectorAll('.biz-pick-item').forEach(it => {
+    it.style.display = (val === 'all' || it.dataset.group === val) ? '' : 'none';
   });
+}
+
+function bizflowConfirmPick() {
+  const mask = document.getElementById('bizflow-picker-mask');
+  const box = window._bizflowTargetBox;
+  if (!mask) return;
+  const radio = mask.querySelector('.biz-pick-radio:checked');
+  if (!radio) { alert('请选择一个页面作为素材。'); return; }
+  const id = decodeURIComponent(radio.value);
+  const category = decodeURIComponent(radio.dataset.category);
+  const title = decodeURIComponent(radio.dataset.title);
+  if (box) {
+    box.dataset.id = id;
+    box.dataset.category = category;
+    box.dataset.title = title;
+    const input = box.querySelector('.bizflow-source-input');
+    if (input) input.value = title + (category && category !== 'project-wiki' ? ' · ' + category : '');
+    box.classList.add('filled');
+  }
+  bizflowClosePicker();
 }
 
 function bizflowClosePicker() {
@@ -3726,30 +3887,46 @@ function bizflowClosePicker() {
   if (m) m.remove();
 }
 
-async function bizflowGenerateFromSources() {
-  const mask = document.getElementById('bizflow-picker-mask');
-  if (!mask) return;
-  const cbs = Array.prototype.slice.call(mask.querySelectorAll('.biz-pick-cb:checked'));
-  if (!cbs.length) { alert('请至少选择一个 Wiki 页面作为素材。'); return; }
-  const ids = cbs.map(cb => decodeURIComponent(cb.value));
-  const useAi = mask.querySelector('#bizflow-picker-ai').checked;
+async function bizflowGenerate() {
+  const btn = document.getElementById('bizflow-gen');
   const st = document.getElementById('bizflow-status');
-  if (st) st.textContent = '读取素材中…';
+  const aiEl = document.getElementById('bizflow-ai');
+  const useAi = aiEl ? aiEl.checked : true;
+  const boxes = Array.prototype.slice.call(document.querySelectorAll('.bizflow-source'));
+  const selected = boxes
+    .map(b => (b.dataset.id ? { id: b.dataset.id, category: b.dataset.category, title: b.dataset.title } : null))
+    .filter(Boolean);
+  const prog = showProgress({
+    title: '生成依赖图谱',
+    message: selected.length
+      ? `正在分析 ${selected.length} 个素材的业务依赖，请稍候…`
+      : '正在基于项目 Wiki 生成业务依赖图谱，请稍候…'
+  });
   try {
-    const pages = await Promise.all(ids.map(id =>
-      apiGet('/brain/pages/project-wiki/' + encodeURIComponent(id))
-        .then(r => ({ id, title: (r && r.data && r.data.title) || id, content: (r && r.data && r.data.content) || '' }))
-        .catch(() => ({ id, title: id, content: '' }))
-    ));
-    const sources = pages.filter(p => p.content && p.content.trim());
-    if (!sources.length) { alert('所选页面无可用内容。'); return; }
-    if (st) st.textContent = '生成中（' + sources.length + ' 个素材）…';
-    await apiPost('/business-graph', { ai: useAi, sources });
-    bizflowClosePicker();
-    await renderBizflow();
-    if (st) st.textContent = '已基于 ' + sources.length + ' 个素材生成';
+    let sources = [];
+    if (selected.length) {
+      sources = await Promise.all(selected.map(s =>
+        apiGet('/brain/pages/' + encodeURIComponent(s.category) + '/' + encodeURIComponent(s.id))
+          .then(r => ({ id: s.id, title: s.title, content: (r && r.data && r.data.content) || '' }))
+          .catch(() => ({ id: s.id, title: s.title, content: '' }))
+      ));
+      sources = sources.filter(s => s.content && s.content.trim());
+    }
+    const payload = { ai: useAi };
+    if (sources.length) payload.sources = sources;
+    await apiPost('/business-graph', payload);
+    const g = await apiGet('/business-graph');
+    if (g && g.data) bizflow = buildBizflowModel(g.data);
+    renderBizflow();
+    const sel = document.getElementById('bizflow-scenario');
+    if (sel) sel.innerHTML = '<option value="">— 选择可测试场景高亮 —</option>' +
+      bizflow.flows.map(f => `<option value="${f.id}">${escapeHtml(f.id)} · ${escapeHtml(f.name)}</option>`).join('');
+    prog.done('业务依赖图谱已生成', 'success');
+    if (btn) btn.textContent = '重新生成';
+    if (st) st.textContent = `${bizflow.nodes.length} 节点 / ${bizflow.edges.length} 边 / ${bizflow.flows.length} 场景` + (sources.length ? `（${sources.length} 素材）` : '（全量）');
   } catch (e) {
-    if (st) st.textContent = '生成失败：' + (e && e.message ? e.message : e);
+    prog.fail('生成失败：' + (e && e.message ? e.message : e));
+    if (st) st.textContent = '生成失败';
   }
 }
 
