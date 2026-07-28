@@ -1,6 +1,6 @@
 # 知识管理系统 V1.0 业务流程与依赖知识图谱
 
-> 版本 1.0 · 生成于 2026-07-24 · 来源 test-knowledge-system/docs/知识管理系统-V1.0架构设计与技术方案.md、test-knowledge-system/docs/API-INTERFACE-DOC.md
+> 版本 1.0 · 生成于 2026-07-24 · 来源 test-knowledge-system/docs/知识管理系统-V1.2架构设计与技术方案.md、test-knowledge-system/docs/API-INTERFACE-DOC.md
 
 - 节点语义：节点 = 一次带语义的业务步骤(对应一次 API 调用)
 - 边语义：有向边 A→B 表示 B 在业务上依赖/须在 A 之后发生(A 为前置)

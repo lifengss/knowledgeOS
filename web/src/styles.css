@@ -126,6 +126,35 @@ body {
   letter-spacing: 0.02em;
 }
 
+.nav-help {
+  padding: 10px 10px 4px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.nav-help-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 4px 12px 8px;
+  opacity: 0.85;
+}
+.nav-help-item {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.nav-help-item:hover {
+  background: rgba(56, 189, 248, 0.06);
+  color: var(--text);
+  border-color: rgba(56, 189, 248, 0.1);
+}
+.nav-help-item.active {
+  background: rgba(56, 189, 248, 0.08);
+  color: var(--primary);
+  border-color: rgba(56, 189, 248, 0.15);
+}
+
 .sidebar-footer {
   padding: 14px 16px;
   border-top: 1px solid var(--border);
@@ -646,6 +675,15 @@ tr:hover { background: rgba(0, 212, 255, 0.04); }
 .bizflow-ai-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
 .btn-block { width: 100%; justify-content: center; }
 .biz-pick-cat { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+
+/* 业务流程图谱：依赖卡片中的上游/下游节点芯片（可点击跳转并聚焦） */
+.biz-dep-chip {
+  cursor: pointer; display: inline-block; margin: 2px 6px 2px 0; padding: 3px 9px;
+  border-radius: 999px; background: rgba(45,212,191,.14);
+  border: 1px solid rgba(45,212,191,.4); color: #2dd4bf; font-size: 11.5px; line-height: 1.5;
+  transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
+}
+.biz-dep-chip:hover { background: rgba(45,212,191,.32); transform: translateY(-1px); box-shadow: 0 0 8px rgba(45,212,191,.45); }
 
 /* 表单 */
 .form-group { margin-bottom: 16px; }
@@ -1228,3 +1266,50 @@ details.wiki-index-group[open] > summary::before { transform: rotate(90deg); }
 .md-figure { margin: 18px 0; text-align: center; }
 .md-img { max-width: 100%; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); background: var(--bg-light); }
 .tut-article table { margin: 14px 0; }
+
+/* ===== 聚焦模块：可折叠多选下拉浮层 ===== */
+.ms-dropdown { position: relative; }
+.ms-control {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  background: var(--card-solid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ms-control:hover { border-color: var(--border-glow); }
+.ms-control:focus { outline: none; border-color: var(--border-glow); box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12); }
+.ms-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-caret { flex-shrink: 0; color: var(--text-muted); font-size: 11px; transition: transform 0.15s; }
+.ms-dropdown.open .ms-caret { transform: rotate(180deg); }
+.ms-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--card-solid);
+  border: 1px solid var(--border-glow, var(--border));
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ms-option { padding: 5px 8px; border-radius: 7px; font-size: 13px; transition: background 0.12s; }
+.ms-option:hover { background: rgba(0, 212, 255, 0.07); }
+.ms-option label { display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; }
+.ms-option input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--primary); flex-shrink: 0; }
+.ms-cat-row { display: flex; gap: 16px; padding: 6px 8px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 4px; }
+.ms-cat { font-size: 12.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.ms-cat input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--primary); flex-shrink: 0; }
+.ms-option.weak { opacity: 0.5; font-size: 12px; }

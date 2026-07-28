@@ -1,34 +1,45 @@
-# 知识管理系统 V1.0
+# 知识管理系统 V1.2（KnowledgeOS）
 
-> 基于 GBrain 内核的通用知识管理系统，首先适配 AI 测试用例自动生成系统的知识闭环，后续扩展为团队协同与企业级知识引擎。
+> 基于 Node/Express + Python Skills + 文件系统 Brain 仓库的轻量知识管理系统。
+> V1.2 已完成多项目隔离、业务知识图谱、人工编辑闭环、统一后台日志等核心能力，正式定版。
 
 ---
 
 ## 项目简介
 
-本项目以 [GBrain](https://github.com/garrytan/gbrain)（MIT 协议）为知识管理内核，构建一套**可自我进化、数据闭环、知识可沉淀复用**的通用知识管理系统。
+知识管理系统（KnowledgeOS / `test-knowledge-system`）是**知识侧**系统，负责知识的结构化沉淀、检索、冲突检测、质量门控与入库。
 
-V1.0 目标是：单人完整跑通 PRD 定义的知识闭环——**生成 → 优化 → 沉淀 → 再生成**。
+它本身**不承载 AI harness**（大模型调用、多轮对话编排由外部 AI 平台负责），而是通过 REST API 与 MCP 接口向「业务前端」与「AI 平台」提供知识查询/写入能力。
+
+三方职责边界（三层 prompt 分离）：
+
+| 层 | 归属 | 内容 |
+|----|------|------|
+| 业务意图 | 业务页面 | 操作类型 + 业务参数 + 业务约束 |
+| 执行模板 | AI 平台 | 大模型指令 + 工具调用编排 + 输出格式 |
+| 知识上下文 | 知识系统 | 检索结果 + 知识图谱 + Brain 页面 |
 
 ---
 
-## 核心能力
+## 核心能力（V1.2）
 
 | 能力 | 说明 |
 |------|------|
-| GBrain 内核 | 版本锁定 v0.16.4，Markdown + Git 存储，RRF 混合搜索，知识图谱自动连线 |
-| L2 知识缓冲层 | SQLite + Python sqlite3， drafts / conflicts / audit_log 三表 |
-| 双通路入库 | 批量确认（batch-commit）+ 单条确认（single-commit） |
-| 冲突检测 | 重复 / 矛盾 / 重叠规则识别，支持合并/覆盖/丢弃 |
+| 多项目知识库隔离 | `config/projects.json` 配置多项目，通过 `project` 参数路由到 `brains/<project>/`；支持 `_shared` 共享库 |
+| L2 知识缓冲层 | SQLite：`drafts` / `conflicts` / `audit_log` 三表，支持 pending/approved/conflict/merged/discarded/rejected 状态机 |
+| 双通路入库 | 批量确认（`batch-commit`）+ 单条确认（`single-commit`），均带质量门控 |
+| 冲突检测与闭环 | 重复/矛盾/重叠规则识别；resolve 后回写 drafts 并触发入库，避免悬挂 |
 | 质量门控 | 基础规则校验与评分，低于 60 分拒绝入库 |
-| API 依赖图谱 | TF-IDF 代码切片 + API 实体页面自动构建 |
-| MCP 接口 | 知识查询（8100）+ 知识写入（8101），供 AI 平台调用 |
-| 标准化 REST API | 完整 OpenAPI 文档，弱化 MCP 依赖 |
-| 简易 SDK | Java / Python SDK，降低业务系统对接成本 |
-| 基础 Web UI | 知识库浏览、草稿审核、冲突处理、图谱可视化、全局统计面板 |
-| 兼容校验 | 启动前校验 GBrain 版本、Skill 文件、MCP 配置 |
-| 定时清理与告警 | 过期草稿自动清理，冲突堆积/入库失败/嵌入异常告警 |
-| MaaS 降级容灾 | 重试 / 超时 / 熔断，嵌入不可用时切换关键词检索 |
+| 项目 Wiki | 轻量 Markdown 渲染 + `[[wikilink]]` 跳转 + 页面内目录 |
+| API 依赖图谱 | 自动抽取代码中的 API 调用关系，力导向可视化 |
+| 业务实体图谱 | 确定性抽取 PRD/需求文档 H2/H3 为实体节点，同文档共现/`[[wikilink]]` 为边 |
+| 业务场景依赖图谱 | `plan → scenario(BFS) → optimize` 渐进式生成，AI 规划优先、确定性骨架兜底 |
+| 人工编辑优化闭环 | 编辑先生成 L2 草稿（knowledge_edit + quality_rule），确认后回写原仓库 |
+| 统一后台日志 | JSON 行日志：`logs/app-YYYY-MM-DD.log`（7 天）+ `logs/llm/app-llm-YYYY-MM-DD.log`（1 天） |
+| AI 适配层 | `codebuddy` / `openai` / `none` 三通道；支持 `models.json` 自定义模型；GBrain 段配置占位 |
+| 标准化 REST API | 完整接口文档，统一 `{success, data, error}` 返回结构 |
+| 基础 Web UI | 知识库浏览、草稿审核、冲突处理、图谱可视化、系统设置、使用教程 |
+| MCP 接口 | `mcp_connector/` 提供 stdio 传输的查询/写入工具 |
 
 ---
 
@@ -36,13 +47,13 @@ V1.0 目标是：单人完整跑通 PRD 定义的知识闭环——**生成 → 
 
 | 层 | 技术 |
 |----|------|
-| 内核 | GBrain v0.16.4 + PGLite |
-| 缓冲层 | SQLite + Python sqlite3（标准库） |
-| 运行时 | Python 3.10+（主运行时） |
-| REST API | Python Flask |
-| TF-IDF | Python 3.10+ ast 模块 |
-| SDK | Java（OkHttp + Gson）、Python（requests） |
-| Web UI | 基础 HTML/JS/CSS |
+| 接入/网关 | Node.js + Express（ESM），默认端口 `3000` |
+| 功能脚本（Skills） | Python ≥ 3.10，以子进程方式调用 |
+| 知识存储 | 文件系统 Markdown（Brain 仓库），YAML frontmatter 元数据 |
+| 缓冲层 | SQLite：`cache/drafts.db` |
+| 检索 | Python 关键词 + 可选语义，RRF 风格混合检索 |
+| 前端 | 原生 HTML/JS/CSS，Express 静态托管 |
+| 日志 | 文件系统 JSON 行，按天轮转 |
 
 ---
 
@@ -50,122 +61,129 @@ V1.0 目标是：单人完整跑通 PRD 定义的知识闭环——**生成 → 
 
 ```
 test-knowledge-system/
-├── brain/                    # GBrain Brain 仓库（4 个知识库目录）
-├── skills/                   # 8 个自建 Fat Skills
-├── cache/                    # L2 缓冲层（SQLite + 告警日志）
-├── agents/                   # MCP 接口配置
-├── api/                      # REST API 网关 + OpenAPI 文档
-├── sdk/                      # Java / Python 简易 SDK
-├── web/                      # Web UI 管理界面
-├── config/                   # 系统配置
-├── scripts/                  # 运维脚本 + 兼容校验 + 清理/告警
-├── package.json              # 依赖与脚本
-├── .env.example              # 环境变量模板
-└── README.md                 # 本文件
+├── api/                       # Node 接入层
+│   ├── server.js              # Express 网关 + 静态托管
+│   └── logger.js              # Node 统一日志
+├── skills/                    # Python 功能脚本
+│   ├── business_graph_builder.py
+│   ├── api_graph_builder.py
+│   ├── batch_commit.py / single_commit.py
+│   ├── conflict_detector.py / quality_gate.py
+│   ├── case_generator.py / case_validator.py
+│   ├── code_upload_parser.py / generate_quality_rule.py
+│   └── tfidf_code_slicer.py
+├── cache/                     # SQLite 数据层
+│   ├── draft_cache.py
+│   ├── conflict_queue.py
+│   └── audit_log.py
+├── ai/                        # AI 适配层
+│   ├── ai_config.py
+│   ├── ai_adapter.py
+│   ├── codebuddy_client.py
+│   └── llm_logger.py
+├── mcp_connector/             # MCP stdio 连接器
+│   ├── query_server.py
+│   └── write_server.py
+├── web/                       # 前端（无构建）
+│   ├── index.html
+│   └── src/
+│       ├── app.js
+│       ├── api-docs-data.js
+│       └── styles.css
+├── config/                    # 系统配置
+│   └── projects.json          # 多项目配置
+├── docs/                      # 设计文档与接口文档
+│   ├── 知识管理系统-V1.2架构设计与技术方案.md
+│   └── API-INTERFACE-DOC.md
+├── package.json
+├── .env.example
+└── README.md                  # 本文件
 ```
 
 ---
 
 ## 快速开始
 
-### 1. 环境准备
+### 1. 环境要求
 
-| 组件 | 版本要求 | 用途 |
-|------|----------|------|
-| Python | >= 3.10 | 自建代码主运行时（缓冲层、Skills、REST API） |
-| Bun | >= 1.0 | GBrain 内核运行时（仅内核依赖） |
-| Git | >= 2.30 | Brain 仓库版本管理 |
+| 组件 | 版本要求 |
+|------|----------|
+| Node.js | >= 18 |
+| Python | >= 3.10 |
+| Git | >= 2.30 |
 
-### 2. 安装 GBrain 内核
+### 2. 安装依赖
 
 ```bash
-export GBRAIN_VERSION="v0.16.4"
-git clone --branch $GBRAIN_VERSION --depth 1 https://github.com/garrytan/gbrain.git ~/gbrain
-cd ~/gbrain
-bun install && bun link
+cd test-knowledge-system
+npm install
 ```
 
 ### 3. 配置环境变量
 
 ```bash
-cd test-knowledge-system
 cp .env.example .env
-# 编辑 .env，配置 OPENAI_API_KEY、OPENAI_BASE_URL 等
+# 编辑 .env，配置 AI 平台相关参数
 ```
 
-### 4. 启动兼容校验
-
-```bash
-bash scripts/compat-check.sh
-# 或 Windows PowerShell
-# powershell -File scripts/compat-check.ps1
-```
-
-### 5. 初始化缓冲层数据库
+### 4. 初始化缓冲层数据库
 
 ```bash
 python scripts/init_cache.py
 ```
 
-### 6. 启动服务
+### 5. 启动服务
 
 ```bash
-bash scripts/start-agents.sh
+npm run api
+# 或
+node api/server.js
 ```
 
-### 7. 预览 Web UI
+服务默认监听 `http://localhost:3000`。
 
-```bash
-cd web
-python -m http.server 8080
-```
+### 6. 访问 Web UI
 
-浏览器访问 http://localhost:8080
+浏览器打开 `http://localhost:3000`。
 
 ---
 
-## 使用 SDK
+## 运行测试
 
-### Python
+```bash
+# 综合测试（生成 REPORT.md）
+node tests/comprehensive/run-tests.cjs
 
-```python
-from knowledge_client import KnowledgeClient
+# 回归测试（生成 REGRESSION-REPORT.md）
+node tests/comprehensive/regression-tests.cjs
 
-client = KnowledgeClient("http://localhost:3000")
-results = client.search("用户登录", mode="rrf")
-print(results)
+# 功能测试
+node tests/comprehensive/feature-tests.cjs
+
+# pytest 集成测试
+python -m pytest tests/test_integration_full.py -v
 ```
-
-### Java
-
-```java
-KnowledgeClient client = new KnowledgeClient("http://localhost:3000");
-List<Map<String, Object>> results = client.search("用户登录", "rrf", 5);
-System.out.println(results);
-```
-
----
-
-## 开发计划
-
-| 周次 | 里程碑 |
-|------|--------|
-| 第 1 周 | 环境 + GBrain 就绪 |
-| 第 2 周 | L2 缓冲层就绪 |
-| 第 3 周 | Skills + MCP + REST API + SDK 就绪 |
-| 第 4 周 | Web UI + 定时清理/告警 就绪 |
-| 第 5 周 | V1.0 整体验收 |
 
 ---
 
 ## 相关文档
 
-- [V1.0 需求列表与开发计划](../proj_wiki/wiki/V1.0-需求列表与开发计划.md)
-- [V1.0 测试大纲与测试用例](../proj_wiki/wiki/V1.0-测试大纲与测试用例.md)
-- [功能需求版本矩阵](../proj_wiki/wiki/功能需求版本矩阵.md)
+- [V1.2 架构设计与技术方案](docs/知识管理系统-V1.2架构设计与技术方案.md)
+- [API 接口文档](docs/API-INTERFACE-DOC.md)
+- [测试报告](tests/comprehensive/REPORT.md)
+- [回归测试报告](tests/comprehensive/REGRESSION-REPORT.md)
+
+---
+
+## 版本历史
+
+| 版本 | 时间 | 说明 |
+|------|------|------|
+| 1.0.0 | 2024 | 原型版本，基于 GBrain 内核设计 |
+| 1.2.0 | 2026-07-28 | 正式定版：多项目隔离、业务图谱、人工编辑闭环、统一日志、使用教程 |
 
 ---
 
 ## 许可证
 
-本项目基于 GBrain MIT 协议构建，自定义代码同样采用 MIT 协议。
+MIT

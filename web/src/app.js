@@ -618,14 +618,20 @@ const pageTemplates = {
           </div>
           <aside class="bizflow-side">
             <div class="bizflow-side-head">
-              <strong>生成素材</strong>
-              <span class="bizflow-side-hint">从项目 Wiki 选取</span>
+              <strong>生成设置</strong>
+              <span class="bizflow-side-hint">基于项目 Wiki 自动检索</span>
             </div>
-            <div id="bizflow-sources" class="bizflow-sources"></div>
-            <button class="bizflow-add" onclick="bizflowAddSource()">
-              <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              添加素材
-            </button>
+            <div class="bizflow-field">
+              <label class="bizflow-label">聚焦模块（可选）</label>
+              <div class="ms-dropdown" id="bizflow-focus-wrap">
+                <button type="button" class="ms-control input" id="bizflow-focus-btn" onclick="bizflowToggleFocusPanel()">
+                  <span class="ms-value" id="bizflow-focus-label">— 全量（默认）—</span>
+                  <span class="ms-caret">▾</span>
+                </button>
+                <div class="ms-panel" id="bizflow-focus-panel" style="display:none;"></div>
+              </div>
+              <span class="bizflow-side-hint">不选则基于全量 Wiki 做业务场景 BFS 生成；可多选以缩小范围</span>
+            </div>
             <div class="bizflow-divider"></div>
             <label class="bizflow-ai-row">
               <input type="checkbox" id="bizflow-ai" checked/>
@@ -1040,7 +1046,7 @@ const pageTemplates = {
       const manifest = await res.json();
       let sysVer = '';
       try { const h = await apiGet('/health'); sysVer = h.version || ''; } catch (e) {}
-      const tv = manifest.tutorialVersion || '?';
+      const tv = manifest.version || manifest.tutorialVersion || '?';
       const sv = manifest.systemVersion || '';
       let banner = '';
       if (sysVer && sv && sysVer !== sv) {
@@ -1073,6 +1079,7 @@ const titles = {
   drafts: '草稿审核',
   conflicts: '冲突处理',
   graph: '图谱可视化',
+  bizflow: '业务流程图谱',
   verify: '知识问答',
   audit: '审计日志',
   quality: '质量监控',
@@ -2768,7 +2775,7 @@ async function loadAiCliStatus() {
   badge.textContent = '检测中…'; badge.style.background = '#3a4250'; badge.style.color = '#fff';
   if (loginBtn) loginBtn.style.display = 'none';
   try {
-    const res = await apiGet('/api/ai-cli/status');
+    const res = await apiGet('/ai-cli/status');
     const d = res && res.success ? res.data : null;
     if (!d || !d.status) { badge.textContent = '检测失败'; badge.style.background = '#b45309'; return; }
     const map = {
@@ -2792,7 +2799,7 @@ async function aiCliLogin() {
   if (stat) stat.textContent = '正在打开浏览器登录…';
   if (loginBtn) loginBtn.disabled = true;
   try {
-    const res = await apiPost('/api/ai-cli/login', {});
+    const res = await apiPost('/ai-cli/login', {});
     if (stat) stat.textContent = (res && res.message) || (res && res.error) || (res && res.success ? '已触发登录' : '登录失败');
   } catch (e) {
     if (stat) stat.textContent = '请求失败: ' + (e && e.message ? e.message : e);
@@ -3359,6 +3366,8 @@ window.addEventListener('mousedown', (e) => {
 });
 window.addEventListener('mousemove', (e) => {
   if (!graphState.dragging) return;
+  const container = document.getElementById('graph-container');
+  if (!container) { graphState.dragging = null; return; }
   if (graphState.dragging === 'canvas') {
     graphState.transform.x += e.clientX - graphState.dragOffset.x;
     graphState.transform.y += e.clientY - graphState.dragOffset.y;
@@ -3367,7 +3376,7 @@ window.addEventListener('mousemove', (e) => {
   } else {
     const node = graphState.nodes.find(n => n.id === graphState.dragging);
     if (node) {
-      const rect = document.getElementById('graph-container').getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
       node.x = (e.clientX - rect.left - graphState.transform.x) / graphState.transform.k;
       node.y = (e.clientY - rect.top - graphState.transform.y) / graphState.transform.k;
       renderGraph();
@@ -3404,7 +3413,7 @@ async function initBizflow() {
     const st = document.getElementById('bizflow-status');
     if (st) st.textContent = `${bizflow.nodes.length} 节点 / ${bizflow.edges.length} 边 / ${bizflow.flows.length} 场景`;
     renderBizflowLegend();
-    bizflowInitSources();
+    bizflowInitFocus();
     const genBtn = document.getElementById('bizflow-gen');
     if (genBtn) genBtn.textContent = '生成依赖图谱';
   } catch (err) {
@@ -3482,6 +3491,18 @@ function drawBizflow() {
     p.setAttribute('fill', BIZFLOW_EDGE_COLOR[t]);
     m.appendChild(p); defs.appendChild(m);
   });
+  const glow = document.createElementNS(BIZFLOW_NS, 'filter');
+  glow.setAttribute('id', 'bf-glow');
+  glow.setAttribute('x', '-80%'); glow.setAttribute('y', '-80%');
+  glow.setAttribute('width', '260%'); glow.setAttribute('height', '260%');
+  const gblur = document.createElementNS(BIZFLOW_NS, 'feGaussianBlur');
+  gblur.setAttribute('stdDeviation', '3.4'); gblur.setAttribute('result', 'b');
+  const gmerge = document.createElementNS(BIZFLOW_NS, 'feMerge');
+  const gmn1 = document.createElementNS(BIZFLOW_NS, 'feMergeNode'); gmn1.setAttribute('in', 'b');
+  const gmn2 = document.createElementNS(BIZFLOW_NS, 'feMergeNode'); gmn2.setAttribute('in', 'SourceGraphic');
+  gmerge.appendChild(gmn1); gmerge.appendChild(gmn2);
+  glow.appendChild(gblur); glow.appendChild(gmerge);
+  defs.appendChild(glow);
   svg.appendChild(defs);
   const root = document.createElementNS(BIZFLOW_NS, 'g');
   root.setAttribute('id', 'bizflow-root');
@@ -3506,11 +3527,14 @@ function drawBizflow() {
     g.setAttribute('class', 'bf-node');
     g.setAttribute('data-id', n.id);
     g.style.cursor = 'pointer';
-    const c1 = document.createElementNS(BIZFLOW_NS, 'circle');
-    c1.setAttribute('r', r); c1.setAttribute('fill', n.color); c1.setAttribute('fill-opacity', '0.18');
-    c1.setAttribute('stroke', n.color); c1.setAttribute('stroke-width', '1.6');
-    const c2 = document.createElementNS(BIZFLOW_NS, 'circle');
-    c2.setAttribute('r', r * 0.42); c2.setAttribute('fill', n.color);
+    const halo = document.createElementNS(BIZFLOW_NS, 'circle');
+    halo.setAttribute('class', 'bf-halo');
+    halo.setAttribute('r', r + 7); halo.setAttribute('fill', n.color);
+    halo.setAttribute('filter', 'url(#bf-glow)');
+    const core = document.createElementNS(BIZFLOW_NS, 'circle');
+    core.setAttribute('class', 'bf-core');
+    core.setAttribute('r', r); core.setAttribute('fill', n.color);
+    core.setAttribute('stroke', '#ffffff'); core.setAttribute('stroke-opacity', '0.85'); core.setAttribute('stroke-width', '1.4');
     const t1 = document.createElementNS(BIZFLOW_NS, 'text');
     t1.setAttribute('x', '0'); t1.setAttribute('y', r + 13); t1.setAttribute('text-anchor', 'middle');
     t1.setAttribute('font-size', '11'); t1.style.fontWeight = '600'; t1.style.fill = 'var(--text)';
@@ -3520,7 +3544,7 @@ function drawBizflow() {
     t2.setAttribute('x', '0'); t2.setAttribute('y', r + 25); t2.setAttribute('text-anchor', 'middle');
     t2.setAttribute('font-size', '10'); t2.style.fill = 'var(--text-muted)';
     t2.style.pointerEvents = 'none'; t2.textContent = lbl;
-    g.appendChild(c1); g.appendChild(c2); g.appendChild(t1); g.appendChild(t2);
+    g.appendChild(halo); g.appendChild(core); g.appendChild(t1); g.appendChild(t2);
     g.addEventListener('mouseenter', ev => { onBizflowHover(n.id, ev); });
     g.addEventListener('mouseleave', onBizflowHoverEnd);
     g.addEventListener('click', ev => { ev.stopPropagation(); bizflowSelectNode(n.id); });
@@ -3563,6 +3587,15 @@ function bizflowVisible() {
       if (n.id.toLowerCase().includes(q) || n.title.toLowerCase().includes(q)) bright.add(n.id);
     });
   }
+  if (bizflow.selected) {
+    const sid = bizflow.selected;
+    bright.clear();
+    bright.add(sid);
+    bizflow.edges.forEach(e => {
+      if (e.from === sid) { bright.add(e.to); hlEdges.add(e.id); }
+      if (e.to === sid) { bright.add(e.from); hlEdges.add(e.id); }
+    });
+  }
   return { bright, hlEdges };
 }
 
@@ -3584,9 +3617,9 @@ function updateBizflow() {
     p.setAttribute('d', `M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`);
     const dim = !(bright.has(e.from) && bright.has(e.to));
     const hl = hlEdges.has(e.id);
-    p.setAttribute('stroke-width', hl ? 2.6 : 1.3);
+    p.setAttribute('stroke-width', hl ? 3 : 1.3);
     p.setAttribute('stroke-opacity', dim ? 0.06 : (hl ? 1 : 0.55));
-    p.style.filter = hl ? 'drop-shadow(0 0 4px ' + e.color + ')' : 'none';
+    p.style.filter = hl ? `drop-shadow(0 0 6px ${e.color}) drop-shadow(0 0 2px ${e.color})` : 'none';
   });
   bizflow.nodes.forEach(n => {
     const g = svg.querySelector(`.bf-node[data-id="${n.id}"]`);
@@ -3596,9 +3629,11 @@ function updateBizflow() {
     const hl = bizflow.highlight === n.id;
     const sel = bizflow.selected === n.id;
     g.setAttribute('opacity', dim ? 0.16 : 1);
-    const c1 = g.firstChild;
-    c1.setAttribute('stroke-width', sel ? 3 : (hl ? 2.6 : 1.6));
-    c1.setAttribute('fill-opacity', hl || sel ? 0.32 : 0.18);
+    const halo = g.querySelector('.bf-halo');
+    const core = g.querySelector('.bf-core');
+    halo.setAttribute('opacity', dim ? 0 : (sel ? 0.62 : (hl ? 0.45 : 0.25)));
+    core.setAttribute('stroke-width', sel ? 3 : (hl ? 2.4 : 1.4));
+    core.setAttribute('stroke-opacity', sel ? 1 : 0.85);
   });
 }
 
@@ -3664,7 +3699,9 @@ function onBizDown(e) {
 
 function onBizMove(e) {
   if (!bizflow || !bizflow.drag) return;
-  const rect = document.getElementById('bizflow-svg').getBoundingClientRect();
+  const bizSvg = document.getElementById('bizflow-svg');
+  if (!bizSvg) { bizflow.drag = null; return; }
+  const rect = bizSvg.getBoundingClientRect();
   if (bizflow.drag.type === 'node') {
     const n = bizflow.nodeMap[bizflow.drag.id];
     n.x = (e.clientX - rect.left - bizflow.tf.x) / bizflow.tf.k;
@@ -3722,7 +3759,13 @@ function bizflowSelectNode(id) {
   const el = document.getElementById('bizflow-detail');
   if (!id) { el.style.display = 'none'; return; }
   const n = bizflow.nodeMap[id];
-  const deps = [...bizflow.neighbors[id]];
+  const up = bizflow.edges.filter(e => e.to === id).map(e => e.from);
+  const down = bizflow.edges.filter(e => e.from === id).map(e => e.to);
+  const inFlows = (bizflow.flows || []).map((f, i) => {
+    const idx = f.steps.indexOf(id);
+    return idx >= 0 ? { f, idx } : null;
+  }).filter(Boolean);
+  const depChip = (tid) => `<span class="biz-dep-chip" onclick="bizflowSelectNode('${escapeHtml(tid)}')">${escapeHtml(tid)} · ${escapeHtml(bizflow.nodeMap[tid] ? bizflow.nodeMap[tid].title : tid)}</span>`;
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
       <h3 style="margin:0;font-size:15px;line-height:1.3;">${escapeHtml(n.id)} · ${escapeHtml(n.title)}</h3>
@@ -3732,12 +3775,18 @@ function bizflowSelectNode(id) {
       <span class="tag" style="background:${n.color}33;color:${n.color};">${escapeHtml(n.domain)}</span>
       ${n.role ? `<span class="tag">${escapeHtml(n.role)}</span>` : ''}
     </div>
+    ${inFlows.length ? `
+    <div style="margin-top:12px;padding:10px 12px;background:rgba(45,212,191,0.08);border:1px solid rgba(45,212,191,0.28);border-radius:10px;">
+      <div style="font-size:11px;color:#2dd4bf;font-weight:600;letter-spacing:.04em;margin-bottom:6px;">业务阶段（所属业务流）</div>
+      ${inFlows.map(({ f, idx }) => `<div style="font-size:12.5px;line-height:1.6;"><span style="font-weight:600;color:#2dd4bf;">${escapeHtml(f.name)}</span><span style="color:var(--text-muted);font-size:11px;"> · 第 ${idx + 1} 步 / 共 ${f.steps.length} 步</span></div>`).join('')}
+    </div>` : ''}
     <dl style="margin:12px 0 0;font-size:12px;line-height:1.7;">
       <dt style="color:var(--text-muted)">接口</dt><dd style="margin:0 0 6px;"><code>${escapeHtml(n.api)}</code></dd>
       <dt style="color:var(--text-muted)">摘要</dt><dd style="margin:0 0 6px;">${escapeHtml(n.summary)}</dd>
       ${n.produces.length ? `<dt style="color:var(--text-muted)">产出</dt><dd style="margin:0 0 6px;">${n.produces.map(escapeHtml).join('、')}</dd>` : ''}
       ${n.consumes.length ? `<dt style="color:var(--text-muted)">前置资源</dt><dd style="margin:0 0 6px;">${n.consumes.map(escapeHtml).join('、')}</dd>` : ''}
-      <dt style="color:var(--text-muted)">直接依赖 / 被依赖</dt><dd style="margin:0;">${deps.length ? escapeHtml(deps.join('、')) : '(无)'}</dd>
+      <dt style="color:var(--text-muted)">上游前置（${up.length}）</dt><dd style="margin:0 0 6px;">${up.length ? up.map(depChip).join('') : '(无)'}</dd>
+      <dt style="color:var(--text-muted)">下游后继（${down.length}）</dt><dd style="margin:0;">${down.length ? down.map(depChip).join('') : '(无)'}</dd>
       ${n.notes ? `<dt style="color:var(--text-muted);margin-top:6px;">备注</dt><dd style="margin:0;">${escapeHtml(n.notes)}</dd>` : ''}
     </dl>`;
   el.style.display = 'block';
@@ -3755,44 +3804,6 @@ function bizflowFilter(q) {
   updateBizflow();
 }
 
-// 选择素材生成：弹框列出项目 Wiki 页面，勾选后仅基于所选素材生成业务图谱
-// 右侧素材面板：每个素材框对应一个项目 Wiki 页面；首个默认 PRD，后续可添加 API 协议等
-function bizflowSourceBoxHtml(kind) {
-  const isPrd = kind === 'prd';
-  const label = isPrd ? 'PRD 文档' : 'API 接口协议 / 规范文档';
-  const placeholder = isPrd
-    ? '点击「选取素材」从项目 Wiki 选择 PRD 文档'
-    : '点击「选取素材」从项目 Wiki 选择 API 接口协议或规范文档';
-  return `
-    <div class="bizflow-source" data-kind="${kind}">
-      <div class="bizflow-source-top">
-        <span class="bizflow-source-kind">${label}</span>
-        <button class="bizflow-source-del" title="移除该素材" onclick="bizflowRemoveSource(this)"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-      <div class="bizflow-source-row">
-        <input class="input bizflow-source-input" readonly placeholder="${placeholder}"/>
-        <button class="btn btn-secondary btn-sm" onclick="bizflowPickSource(this)">选取素材</button>
-      </div>
-    </div>`;
-}
-
-function bizflowInitSources() {
-  const wrap = document.getElementById('bizflow-sources');
-  if (wrap) wrap.innerHTML = bizflowSourceBoxHtml('prd');
-}
-
-function bizflowAddSource() {
-  const wrap = document.getElementById('bizflow-sources');
-  if (!wrap) return;
-  wrap.insertAdjacentHTML('beforeend', bizflowSourceBoxHtml('api'));
-}
-
-function bizflowRemoveSource(btn) {
-  const box = btn.closest('.bizflow-source');
-  const wrap = document.getElementById('bizflow-sources');
-  if (box && wrap && wrap.querySelectorAll('.bizflow-source').length > 1) box.remove();
-}
-
 // 按 Wiki 页面 id 前缀归类的文档类型（与 loadWikiIndex 的分组保持一致）
 function bizflowGroupOf(id) {
   if (id.startsWith('api-')) return 'api';
@@ -3804,129 +3815,187 @@ function bizflowGroupOf(id) {
 const BIZFLOW_GROUP_LABELS = { prd: 'PRD 文档', req: '需求文档', api: 'API 协议', entity: '实体抽取', other: '其它' };
 const BIZFLOW_GROUP_ORDER = ['prd', 'req', 'api', 'entity', 'other'];
 
-async function bizflowPickSource(btn) {
-  const box = btn.closest('.bizflow-source');
-  if (!box) return;
-  window._bizflowTargetBox = box;
-  try {
-    const r = await apiGet('/brain/pages?category=project-wiki&limit=1000');
-    const list = (r && r.data) ? r.data : [];
-    if (!list.length) {
-      alert('当前项目 Wiki 暂无页面，请先在「项目 Wiki」中录入架构 / PRD / API 文档。');
-      return;
-    }
-    const items = list.map(p => {
-      const g = bizflowGroupOf(p.id);
-      return `<label class="biz-pick-item" data-group="${g}"><input type="radio" name="bizpick" class="biz-pick-radio" value="${encodeURIComponent(p.id)}" data-category="${encodeURIComponent(p.category || 'project-wiki')}" data-title="${encodeURIComponent(p.title || p.id)}"/> <span>${escapeHtml(p.title || p.id)}</span> <span class="biz-pick-cat">${escapeHtml(p.category || '')}</span></label>`;
-    }).join('');
-    // 第二个及以后（API 协议/规范类）素材框默认按文档类别自动筛选 Wiki 列表
-    const boxKind = box.dataset.kind || 'all';
-    const present = BIZFLOW_GROUP_ORDER.filter(g => list.some(p => bizflowGroupOf(p.id) === g));
-    const defaultFilter = (boxKind === 'api' || boxKind === 'prd' || boxKind === 'req' || boxKind === 'entity') ? boxKind : 'all';
-    const opts = ['<option value="all">全部文档</option>']
-      .concat(present.map(g => `<option value="${g}" ${g === defaultFilter ? 'selected' : ''}>${BIZFLOW_GROUP_LABELS[g] || g}</option>`))
-      .join('');
-    const html =
-      `<div class="modal-mask" id="bizflow-picker-mask">
-         <div class="modal-card">
-           <div class="modal-head">
-             <span>选择素材（项目 Wiki）</span>
-             <span class="biz-pick-filter-wrap">
-               <select id="biz-pick-filter" class="input input-sm" onchange="bizflowFilterPick()">${opts}</select>
-               <button class="modal-close" onclick="bizflowClosePicker()"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-             </span>
-           </div>
-           <div class="modal-body"><div class="biz-pick-list">${items}</div></div>
-           <div class="modal-foot">
-             <button class="btn btn-primary btn-sm" onclick="bizflowConfirmPick()">确认选择</button>
-             <button class="btn btn-secondary btn-sm" onclick="bizflowClosePicker()">取消</button>
-           </div>
-         </div>
-       </div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
-    bizflowFilterPick(); // 按框类型默认筛选一次
-  } catch (e) {
-    alert('加载 Wiki 页面失败：' + (e && e.message ? e.message : e));
-  }
-}
-
-// 素材选择弹框：按文档类别（prd/api/req 等）即时筛选列表
-function bizflowFilterPick() {
-  const mask = document.getElementById('bizflow-picker-mask');
-  if (!mask) return;
-  const sel = mask.querySelector('#biz-pick-filter');
-  if (!sel) return;
-  const val = sel.value;
-  mask.querySelectorAll('.biz-pick-item').forEach(it => {
-    it.style.display = (val === 'all' || it.dataset.group === val) ? '' : 'none';
-  });
-}
-
-function bizflowConfirmPick() {
-  const mask = document.getElementById('bizflow-picker-mask');
-  const box = window._bizflowTargetBox;
-  if (!mask) return;
-  const radio = mask.querySelector('.biz-pick-radio:checked');
-  if (!radio) { alert('请选择一个页面作为素材。'); return; }
-  const id = decodeURIComponent(radio.value);
-  const category = decodeURIComponent(radio.dataset.category);
-  const title = decodeURIComponent(radio.dataset.title);
-  if (box) {
-    box.dataset.id = id;
-    box.dataset.category = category;
-    box.dataset.title = title;
-    const input = box.querySelector('.bizflow-source-input');
-    if (input) input.value = title + (category && category !== 'project-wiki' ? ' · ' + category : '');
-    box.classList.add('filled');
-  }
-  bizflowClosePicker();
-}
-
-function bizflowClosePicker() {
-  const m = document.getElementById('bizflow-picker-mask');
-  if (m) m.remove();
-}
-
 async function bizflowGenerate() {
   const btn = document.getElementById('bizflow-gen');
   const st = document.getElementById('bizflow-status');
   const aiEl = document.getElementById('bizflow-ai');
   const useAi = aiEl ? aiEl.checked : true;
-  const boxes = Array.prototype.slice.call(document.querySelectorAll('.bizflow-source'));
-  const selected = boxes
-    .map(b => (b.dataset.id ? { id: b.dataset.id, category: b.dataset.category, title: b.dataset.title } : null))
-    .filter(Boolean);
-  const prog = showProgress({
-    title: '生成依赖图谱',
-    message: selected.length
-      ? `正在分析 ${selected.length} 个素材的业务依赖，请稍候…`
-      : '正在基于项目 Wiki 生成业务依赖图谱，请稍候…'
-  });
+  const focus = bizflowGetFocus();
+  const prog = showProgress({ title: '生成业务依赖图谱', message: '正在规划业务场景…' });
   try {
-    let sources = [];
-    if (selected.length) {
-      sources = await Promise.all(selected.map(s =>
-        apiGet('/brain/pages/' + encodeURIComponent(s.category) + '/' + encodeURIComponent(s.id))
-          .then(r => ({ id: s.id, title: s.title, content: (r && r.data && r.data.content) || '' }))
-          .catch(() => ({ id: s.id, title: s.title, content: '' }))
-      ));
-      sources = sources.filter(s => s.content && s.content.trim());
+    // 1) 规划：获取业务场景种子（AI 优先，确定性兜底）
+    prog.update('正在规划业务场景（基于项目 Wiki）…');
+    const planRes = await apiPost('/business-graph/plan', { ai: useAi, focus });
+    const plan = (planRes && planRes.data) || {};
+    let queue = plan.scenarios || [];
+    let discovered = queue.length;
+    let generated = 0;
+    const collected = [];
+    const visited = {};
+
+    // 2) 逐场景生成（BFS：场景消费后可产生新关联场景）
+    const MAX_SCENARIOS = 60;
+    while (queue.length && generated < MAX_SCENARIOS) {
+      const sc = queue.shift();
+      if (visited[sc.id]) continue;
+      visited[sc.id] = true;
+      prog.update(`已生成 ${generated} 个场景 · 待处理 ${queue.length} · 新发现 ${discovered}`);
+      let sub;
+      try {
+        const r = await apiPost('/business-graph/scenario', { scenario: sc, ai: useAi });
+        sub = (r && r.data) || {};
+      } catch (e) {
+        sub = { nodes: [], edges: [], flow: { id: sc.id, name: sc.name, steps: [] }, related_modules: [] };
+      }
+      collected.push({ scenario: sc, nodes: sub.nodes || [], edges: sub.edges || [], flow: sub.flow || {} });
+      generated++;
+      // BFS 扩散：将关联模块作为新场景入栈（未访问、未超预算）
+      const related = sub.related_modules || [];
+      for (const m of related) {
+        if (visited['m_' + m]) continue;
+        if (generated + queue.length >= MAX_SCENARIOS) break;
+        queue.push({ id: 'm_' + m, name: m.replace('api-', ''), description: '', focus_modules: [m], focus_tags: [] });
+        discovered++;
+      }
     }
-    const payload = { ai: useAi };
-    if (sources.length) payload.sources = sources;
-    await apiPost('/business-graph', payload);
-    const g = await apiGet('/business-graph');
-    if (g && g.data) bizflow = buildBizflowModel(g.data);
+
+    // 3) 合并优化并入库
+    prog.update('正在整理优化（合并去重、构建业务域）…');
+    const optRes = await apiPost('/business-graph/optimize', { scenarios: collected, write: true });
+    const data = (optRes && optRes.data && optRes.data.data) || null;
+    if (data) bizflow = buildBizflowModel(data);
     renderBizflow();
     const sel = document.getElementById('bizflow-scenario');
     if (sel) sel.innerHTML = '<option value="">— 选择可测试场景高亮 —</option>' +
-      bizflow.flows.map(f => `<option value="${f.id}">${escapeHtml(f.id)} · ${escapeHtml(f.name)}</option>`).join('');
-    prog.done('业务依赖图谱已生成', 'success');
+      (bizflow ? bizflow.flows : []).map(f => `<option value="${f.id}">${escapeHtml(f.id)} · ${escapeHtml(f.name)}</option>`).join('');
+    prog.done(`业务依赖图谱已生成（${plan.mode === 'ai' ? 'AI' : '确定性'}）`, 'success');
     if (btn) btn.textContent = '重新生成';
-    if (st) st.textContent = `${bizflow.nodes.length} 节点 / ${bizflow.edges.length} 边 / ${bizflow.flows.length} 场景` + (sources.length ? `（${sources.length} 素材）` : '（全量）');
+    if (st) st.textContent = `${bizflow.nodes.length} 节点 / ${bizflow.edges.length} 边 / ${bizflow.flows.length} 场景` +
+      (focus && focus.length ? `（聚焦 ${focus.length} 模块）` : '（全量 Wiki）');
   } catch (e) {
     prog.fail('生成失败：' + (e && e.message ? e.message : e));
     if (st) st.textContent = '生成失败';
+  }
+}
+
+function bizflowGetFocus() {
+  const panel = document.getElementById('bizflow-focus-panel');
+  if (!panel) return [];
+  const cats = new Set();
+  panel.querySelectorAll('.ms-cat input[type=checkbox]:checked').forEach(cb => cats.add(cb.dataset.cat));
+  const allCb = panel.querySelector('input[data-all]');
+  const vals = [];
+  if (allCb && allCb.checked) {
+    // 聚焦所选类别的全部候选模块
+    panel.querySelectorAll('.ms-option[data-cat]').forEach(o => {
+      if (cats.has(o.dataset.cat)) {
+        const v = o.dataset.value;
+        if (v) vals.push(v);
+      }
+    });
+  } else {
+    // 聚焦具体勾选的模块（值挂在 .ms-option 上）
+    panel.querySelectorAll('.ms-option[data-cat]').forEach(o => {
+      const cb = o.querySelector('input[type=checkbox]');
+      if (cb && cb.checked && cats.has(o.dataset.cat)) {
+        const v = o.dataset.value;
+        if (v) vals.push(v);
+      }
+    });
+  }
+  return vals;
+}
+
+function bizflowUpdateFocusLabel() {
+  const panel = document.getElementById('bizflow-focus-panel');
+  const label = document.getElementById('bizflow-focus-label');
+  if (!panel || !label) return;
+  const checked = panel.querySelectorAll('.ms-option[data-cat] input[type=checkbox]:checked');
+  if (checked.length === 0) { label.textContent = '— 全量（默认）—'; return; }
+  const names = Array.from(checked).map(cb => cb.dataset.name || cb.dataset.value);
+  label.textContent = names.length <= 2 ? names.join('、') : `已选 ${names.length} 个模块`;
+}
+
+function bizflowToggleFocusPanel() {
+  const wrap = document.getElementById('bizflow-focus-wrap');
+  const panel = document.getElementById('bizflow-focus-panel');
+  if (!panel || !wrap) return;
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? 'block' : 'none';
+  wrap.classList.toggle('open', open);
+}
+
+function bizflowApplyCatFilter() {
+  const panel = document.getElementById('bizflow-focus-panel');
+  if (!panel) return;
+  const cats = new Set();
+  panel.querySelectorAll('.ms-cat input[type=checkbox]:checked').forEach(cb => cats.add(cb.dataset.cat));
+  panel.querySelectorAll('.ms-option[data-cat]').forEach(o => {
+    const show = cats.has(o.dataset.cat);
+    o.style.display = show ? '' : 'none';
+    if (!show) {
+      const cb = o.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = false;
+    }
+  });
+  bizflowUpdateFocusLabel();
+}
+
+function bizflowFocusAllToggle(cb) {
+  const panel = document.getElementById('bizflow-focus-panel');
+  if (!panel) return;
+  if (cb.checked) {
+    panel.querySelectorAll('.ms-option[data-cat] input[type=checkbox]').forEach(o => { o.checked = false; });
+  }
+  bizflowUpdateFocusLabel();
+}
+
+function bizflowFocusOptionToggle() {
+  const panel = document.getElementById('bizflow-focus-panel');
+  if (!panel) return;
+  const any = panel.querySelectorAll('.ms-option[data-cat] input[type=checkbox]:checked').length;
+  const allCb = panel.querySelector('input[data-all]');
+  if (allCb) allCb.checked = (any === 0);
+  bizflowUpdateFocusLabel();
+}
+
+async function bizflowInitFocus() {
+  const panel = document.getElementById('bizflow-focus-panel');
+  if (!panel) return;
+  try {
+    const r = await apiGet('/business-graph/modules');
+    const mods = (r && r.data) || [];
+    // 类别复选框：API 接口 / Wiki 文档(PRD/需求/实体)；默认仅 API 勾选
+    let html = '<div class="ms-cat-row">'
+      + '<label class="ms-cat"><input type="checkbox" data-cat="api" checked/> API 接口</label>'
+      + '<label class="ms-cat"><input type="checkbox" data-cat="wiki"/> Wiki 文档(PRD/需求/实体)</label>'
+      + '</div>';
+    // 全量（默认）
+    html += '<div class="ms-option" data-value=""><label><input type="checkbox" data-all="1" checked/> 全量（默认）</label></div>';
+    // 模块选项：api→api 类；prd/req/entity→wiki 类；entity 弱化显示
+    html += mods.map(m => {
+      const cat = (m.kind === 'api') ? 'api' : 'wiki';
+      const weak = (m.kind === 'entity') ? ' weak' : '';
+      return `<div class="ms-option${weak}" data-cat="${cat}" data-value="${escapeHtml(m.id)}">`
+        + `<label><input type="checkbox" data-name="${escapeHtml(m.title)}"/> ${escapeHtml(m.title)}</label></div>`;
+    }).join('');
+    panel.innerHTML = html;
+    panel.querySelectorAll('.ms-cat input[type=checkbox]').forEach(cb => { cb.onchange = () => bizflowApplyCatFilter(); });
+    const allCb = panel.querySelector('input[data-all]');
+    if (allCb) allCb.onchange = () => bizflowFocusAllToggle(allCb);
+    panel.querySelectorAll('.ms-option[data-cat] input[type=checkbox]').forEach(o => { o.onchange = () => bizflowFocusOptionToggle(); });
+    bizflowApplyCatFilter();
+    bizflowUpdateFocusLabel();
+  } catch (e) {}
+  if (!window.__bizflowFocusOutside) {
+    window.__bizflowFocusOutside = true;
+    document.addEventListener('click', (e) => {
+      const wrap = document.getElementById('bizflow-focus-wrap');
+      if (wrap && !wrap.contains(e.target)) {
+        const p = document.getElementById('bizflow-focus-panel');
+        if (p) { p.style.display = 'none'; wrap.classList.remove('open'); }
+      }
+    });
   }
 }
 

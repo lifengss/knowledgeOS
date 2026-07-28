@@ -9,6 +9,7 @@ bun.lockb
 cache/*.db
 cache/*.log
 *.log
+logs/
 
 # AI platform runtime config (may contain apiKey)
 data/
@@ -16,6 +17,12 @@ server.err
 server.out
 ks.err
 ks.out
+ks*.err
+ks*.out
+
+# Temporary diagnostic outputs
+eslint_app*.txt
+web/eslint_app*.txt
 
 # Temporary diagnostic scripts (never commit)
 _*.cjs

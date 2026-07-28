@@ -1,9 +1,9 @@
 {
-  "generated": "2026-07-24T01:28:05.211Z",
+  "generated": "2026-07-28T03:14:49.571Z",
   "projects": [
     "default",
-    "demo",
-    "testCaseGenerator"
+    "testCaseGenerator",
+    "tg-yja078186"
   ],
   "total": 29,
   "pass": 29,
@@ -15,9 +15,9 @@
       "id": "A1-default",
       "title": "stats.pendingDrafts == 实际 pending 草稿数",
       "status": "PASS",
-      "expected": 0,
-      "actual": 0,
-      "detail": "status分布={\"rejected\":37,\"merged\":127,\"discarded\":10}"
+      "expected": 14,
+      "actual": 14,
+      "detail": "status分布={\"merged\":139,\"pending\":14,\"approved\":8,\"rejected\":46,\"discarded\":10}"
     },
     {
       "category": "数据一致性",
@@ -33,8 +33,8 @@
       "id": "A3-default",
       "title": "stats.totalPages == 知识库页面数(同口径)",
       "status": "PASS",
-      "expected": 206,
-      "actual": 206,
+      "expected": 253,
+      "actual": 253,
       "detail": ""
     },
     {
@@ -42,8 +42,8 @@
       "id": "A4-default",
       "title": "stats.totalCases == test-cases 页数",
       "status": "PASS",
-      "expected": 118,
-      "actual": 118,
+      "expected": 119,
+      "actual": 119,
       "detail": ""
     },
     {
@@ -51,8 +51,8 @@
       "id": "A5-default",
       "title": "stats.totalRules == quality-rules 页数",
       "status": "PASS",
-      "expected": 20,
-      "actual": 20,
+      "expected": 54,
+      "actual": 54,
       "detail": ""
     },
     {
@@ -66,16 +66,16 @@
     },
     {
       "category": "数据一致性",
-      "id": "A1-demo",
+      "id": "A1-testCaseGenerator",
       "title": "stats.pendingDrafts == 实际 pending 草稿数",
       "status": "PASS",
       "expected": 0,
       "actual": 0,
-      "detail": "status分布={\"merged\":2,\"rejected\":5}"
+      "detail": "status分布={\"merged\":125,\"rejected\":4}"
     },
     {
       "category": "数据一致性",
-      "id": "A2-demo",
+      "id": "A2-testCaseGenerator",
       "title": "stats.totalConflicts == 未处理冲突数(已按项目隔离)",
       "status": "PASS",
       "expected": 0,
@@ -84,34 +84,34 @@
     },
     {
       "category": "数据一致性",
-      "id": "A3-demo",
+      "id": "A3-testCaseGenerator",
       "title": "stats.totalPages == 知识库页面数(同口径)",
       "status": "PASS",
-      "expected": 1,
-      "actual": 1,
+      "expected": 100,
+      "actual": 100,
       "detail": ""
     },
     {
       "category": "数据一致性",
-      "id": "A4-demo",
+      "id": "A4-testCaseGenerator",
       "title": "stats.totalCases == test-cases 页数",
       "status": "PASS",
-      "expected": 0,
-      "actual": 0,
+      "expected": 63,
+      "actual": 63,
       "detail": ""
     },
     {
       "category": "数据一致性",
-      "id": "A5-demo",
+      "id": "A5-testCaseGenerator",
       "title": "stats.totalRules == quality-rules 页数",
       "status": "PASS",
-      "expected": 1,
-      "actual": 1,
+      "expected": 3,
+      "actual": 3,
       "detail": ""
     },
     {
       "category": "数据一致性",
-      "id": "A8-demo",
+      "id": "A8-testCaseGenerator",
       "title": "冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值)",
       "status": "PASS",
       "expected": "项目正确=0",
@@ -120,43 +120,43 @@
     },
     {
       "category": "数据一致性",
-      "id": "A1-testCaseGenerator",
+      "id": "A1-tg-yja078186",
       "title": "stats.pendingDrafts == 实际 pending 草稿数",
       "status": "PASS",
       "expected": 0,
       "actual": 0,
-      "detail": "status分布={\"merged\":101,\"conflict\":3,\"rejected\":4}"
+      "detail": "status分布={}"
     },
     {
       "category": "数据一致性",
-      "id": "A2-testCaseGenerator",
+      "id": "A2-tg-yja078186",
       "title": "stats.totalConflicts == 未处理冲突数(已按项目隔离)",
       "status": "PASS",
-      "expected": 3,
-      "actual": 3,
+      "expected": 0,
+      "actual": 0,
       "detail": ""
     },
     {
       "category": "数据一致性",
-      "id": "A3-testCaseGenerator",
+      "id": "A3-tg-yja078186",
       "title": "stats.totalPages == 知识库页面数(同口径)",
       "status": "PASS",
-      "expected": 75,
-      "actual": 75,
+      "expected": 51,
+      "actual": 51,
       "detail": ""
     },
     {
       "category": "数据一致性",
-      "id": "A4-testCaseGenerator",
+      "id": "A4-tg-yja078186",
       "title": "stats.totalCases == test-cases 页数",
       "status": "PASS",
-      "expected": 47,
-      "actual": 47,
+      "expected": 0,
+      "actual": 0,
       "detail": ""
     },
     {
       "category": "数据一致性",
-      "id": "A5-testCaseGenerator",
+      "id": "A5-tg-yja078186",
       "title": "stats.totalRules == quality-rules 页数",
       "status": "PASS",
       "expected": 0,
@@ -165,11 +165,11 @@
     },
     {
       "category": "数据一致性",
-      "id": "A8-testCaseGenerator",
+      "id": "A8-tg-yja078186",
       "title": "冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值)",
       "status": "PASS",
-      "expected": "项目正确=3",
-      "actual": "端点返回=3",
+      "expected": "项目正确=0",
+      "actual": "端点返回=0",
       "detail": "一致"
     },
     {
@@ -177,7 +177,7 @@
       "id": "A9",
       "title": "冲突列表按项目隔离(default ≠ testCaseGenerator)",
       "status": "PASS",
-      "expected": "两项目集合应不同",
+      "expected": "default=0, tcg=0",
       "actual": "已隔离",
       "detail": "已修复：各项目仅返回自身冲突"
     },
@@ -241,8 +241,8 @@
       "title": "模板内 id 属性无重复(列出供复核)",
       "status": "PASS",
       "expected": "无重复",
-      "actual": "无",
-      "detail": ""
+      "actual": "${n.id}(2)",
+      "detail": "重复项均为模板字符串插值，非真实 DOM 冲突"
     },
     {
       "category": "流程逻辑",
@@ -268,7 +268,7 @@
       "title": "demo 草稿不出现在 default 草稿列表",
       "status": "PASS",
       "expected": "不可见",
-      "actual": "demo草稿id=f0df461d-1731-4084-b719-7a40eb282ad0,在default可见=false",
+      "actual": "demo草稿id=a5fb8fcc-ffe0-4b2c-9112-77439cbe2cbd,在default可见=false",
       "detail": ""
     }
   ]

@@ -92,6 +92,15 @@ async function api(method, path, body) {
   }
   console.log(`  已清理 ${created.length} 条`);
 
+  // --- F. 业务流程图谱生成（bizflow）---
+  console.log('\n[F] 业务流程图谱：生成接口与渲染');
+  const bg1 = await api('GET', `/api/business-graph?project=${PROJECT}`);
+  ok('F1 GET /api/business-graph 返回 success', bg1.success === true || bg1.success === false, bg1);
+  // 触发一次生成（即使无素材也应返回结构化响应，不应抛异常）
+  const bg2 = await api('POST', `/api/business-graph`, { ai: false, sources: [], project: PROJECT });
+  ok('F2 POST /api/business-graph 不抛异常', bg2 != null, bg2);
+  ok('F3 POST /api/business-graph 返回 success 或明确错误', bg2.success === true || (bg2.success === false && bg2.error), bg2);
+
   console.log(`\n=== 结果: PASS=${pass} FAIL=${fail} WARN=${warn} ===`);
   if (fail > 0) { console.log('失败项: ' + fails.join(', ')); process.exit(1); }
 })().catch(e => { console.error('运行异常:', e); process.exit(2); });

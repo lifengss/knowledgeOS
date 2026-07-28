@@ -104,10 +104,13 @@ async function main() {
   await safe(async () => {
     const cDefault = (await get('/conflicts?limit=2000', 'default')).data || [];
     const cTCG = (await get('/conflicts?limit=2000', 'testCaseGenerator')).data || [];
-    const same = JSON.stringify(cDefault.map(c => c.draftId).sort()) === JSON.stringify(cTCG.map(c => c.draftId).sort());
+    // 隔离生效的标志：两项目冲突 draftId 集合无交集（避免零数据时因长度相同而误判）
+    const idsDefault = new Set(cDefault.map(c => c.draftId));
+    const idsTCG = new Set(cTCG.map(c => c.draftId));
+    const overlap = [...idsDefault].some(id => idsTCG.has(id));
     rec('数据一致性', 'A9', '冲突列表按项目隔离(default ≠ testCaseGenerator)',
-      same ? 'FAIL' : 'PASS', '两项目集合应不同', same ? '两项目返回完全相同冲突集' : '已隔离',
-      same ? '仍存在跨项目泄漏' : '已修复：各项目仅返回自身冲突');
+      overlap ? 'FAIL' : 'PASS', `default=${cDefault.length}, tcg=${cTCG.length}`, overlap ? '发现跨项目冲突 draftId 重叠' : '已隔离',
+      overlap ? '仍存在跨项目泄漏' : '已修复：各项目仅返回自身冲突');
   }, '数据一致性', 'A9-run', '冲突列表项目隔离');
 
   // ---------- 静态检查 ----------
@@ -174,9 +177,11 @@ async function main() {
       const re = /id="([^"]+)"/g; let m;
       while ((m = re.exec(app))) ids[m[1]] = (ids[m[1]] || 0) + 1;
       const dup = Object.entries(ids).filter(([k, v]) => v > 1).map(([k, v]) => `${k}(${v})`);
+      // 模板字符串中的重复 id（如 `${n.id}(2)`）不是真实 DOM 冲突，仅作 WARN
+      const realDup = dup.filter(d => !d.includes('${'));
       rec('冗余变量', 'B5', '模板内 id 属性无重复(列出供复核)',
-        (dup.length === 0) ? 'PASS' : 'WARN', '无重复', dup.join(', ') || '无',
-        dup.length ? '列出重复 id 供人工复核是否同模板内冲突' : '');
+        (realDup.length === 0) ? 'PASS' : 'WARN', '无重复', dup.join(', ') || '无',
+        realDup.length ? '发现非模板字面量的重复 id，需人工复核是否同模板内冲突' : '重复项均为模板字符串插值，非真实 DOM 冲突');
     }, '冗余变量', 'B5-run', '重复 id 检查');
   }
 
