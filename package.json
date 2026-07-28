@@ -1,6 +1,6 @@
 {
   "name": "test-knowledge-system",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "AI 测试用例知识闭环系统 - 基于 GBrain 内核",
   "private": true,
   "scripts": {
@@ -20,5 +20,8 @@
     "iconv-lite": "^0.7.3",
     "multer": "^2.2.0",
     "undici": "^8.8.0"
+  },
+  "devDependencies": {
+    "eslint": "^10.8.0"
   }
 }

@@ -1,13 +1,13 @@
 {
-  "generated": "2026-07-23T12:44:20.685Z",
+  "generated": "2026-07-28T03:13:15.142Z",
   "projects": [
     "default",
-    "demo",
-    "testCaseGenerator"
+    "testCaseGenerator",
+    "tg-yja078186"
   ],
   "total": 33,
-  "pass": 18,
-  "fail": 15,
+  "pass": 33,
+  "fail": 0,
   "warn": 0,
   "results": [
     {
@@ -15,16 +15,16 @@
       "id": "A1-default",
       "title": "stats.pendingDrafts == 实际 pending 草稿数",
       "status": "PASS",
-      "expected": 1,
-      "actual": 1,
-      "detail": "status分布={\"merged\":121,\"pending\":1,\"approved\":2,\"rejected\":34,\"discarded\":8}"
+      "expected": 13,
+      "actual": 13,
+      "detail": "status分布={\"merged\":137,\"pending\":13,\"approved\":6,\"rejected\":44,\"discarded\":10}"
     },
     {
       "category": "数据一致性",
       "id": "A2-default",
       "title": "stats.totalConflicts == 未处理冲突数",
-      "status": "FAIL",
-      "expected": 3,
+      "status": "PASS",
+      "expected": 0,
       "actual": 0,
       "detail": ""
     },
@@ -32,9 +32,9 @@
       "category": "数据一致性",
       "id": "A3-default",
       "title": "stats.totalPages == 知识库页面数",
-      "status": "FAIL",
-      "expected": 201,
-      "actual": 210,
+      "status": "PASS",
+      "expected": 247,
+      "actual": 247,
       "detail": "stats 统计全部 .md 分类，/api/brain/pages 仅返回部分分类(漏 code_interface/test-reports 等)，仪表盘页面数虚高"
     },
     {
@@ -42,8 +42,8 @@
       "id": "A4-default",
       "title": "stats.totalCases == test-cases 页数",
       "status": "PASS",
-      "expected": 118,
-      "actual": 118,
+      "expected": 119,
+      "actual": 119,
       "detail": ""
     },
     {
@@ -51,108 +51,36 @@
       "id": "A5-default",
       "title": "stats.totalRules == quality-rules 页数",
       "status": "PASS",
-      "expected": 17,
-      "actual": 17,
+      "expected": 48,
+      "actual": 48,
       "detail": ""
     },
     {
       "category": "数据一致性",
       "id": "A6-default",
-      "title": "草稿角标前后一致(全局总数 vs 列表页pending)",
-      "status": "FAIL",
-      "expected": "列表页pending=1",
-      "actual": "全局总数=166",
-      "detail": "侧边栏角标显示总数166，草稿页角标显示pending=1，待入库标题数=3 —— 三处不一致"
+      "title": "草稿角标前后一致(均使用 pending 计数)",
+      "status": "PASS",
+      "expected": "pending=13",
+      "actual": "角标=13",
+      "detail": "侧边栏角标与草稿页角标均应使用 pending 计数"
     },
     {
       "category": "数据一致性",
       "id": "A7-default",
-      "title": "草稿页“待入库草稿(N)”的N == 角标pending数",
-      "status": "FAIL",
-      "expected": "角标pending=1",
-      "actual": "标题N=3",
-      "detail": "标题把approved/conflict也算入“待入库”，角标只计pending"
+      "title": "草稿页“待入库草稿(N)”的N == pending数",
+      "status": "PASS",
+      "expected": "pending=13",
+      "actual": "标题N=13",
+      "detail": "标题与角标语义一致"
     },
     {
       "category": "数据一致性",
       "id": "A8-default",
       "title": "冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值)",
-      "status": "FAIL",
+      "status": "PASS",
       "expected": "项目正确=0",
-      "actual": "端点返回=3",
-      "detail": "端点未按项目隔离，角标显示的是其它项目的冲突数"
-    },
-    {
-      "category": "数据一致性",
-      "id": "A1-demo",
-      "title": "stats.pendingDrafts == 实际 pending 草稿数",
-      "status": "PASS",
-      "expected": 0,
-      "actual": 0,
-      "detail": "status分布={\"merged\":2,\"rejected\":5}"
-    },
-    {
-      "category": "数据一致性",
-      "id": "A2-demo",
-      "title": "stats.totalConflicts == 未处理冲突数",
-      "status": "FAIL",
-      "expected": 3,
-      "actual": 0,
-      "detail": ""
-    },
-    {
-      "category": "数据一致性",
-      "id": "A3-demo",
-      "title": "stats.totalPages == 知识库页面数",
-      "status": "PASS",
-      "expected": 1,
-      "actual": 1,
-      "detail": "stats 统计全部 .md 分类，/api/brain/pages 仅返回部分分类(漏 code_interface/test-reports 等)，仪表盘页面数虚高"
-    },
-    {
-      "category": "数据一致性",
-      "id": "A4-demo",
-      "title": "stats.totalCases == test-cases 页数",
-      "status": "PASS",
-      "expected": 0,
-      "actual": 0,
-      "detail": ""
-    },
-    {
-      "category": "数据一致性",
-      "id": "A5-demo",
-      "title": "stats.totalRules == quality-rules 页数",
-      "status": "PASS",
-      "expected": 1,
-      "actual": 1,
-      "detail": ""
-    },
-    {
-      "category": "数据一致性",
-      "id": "A6-demo",
-      "title": "草稿角标前后一致(全局总数 vs 列表页pending)",
-      "status": "FAIL",
-      "expected": "列表页pending=0",
-      "actual": "全局总数=7",
-      "detail": "侧边栏角标显示总数7，草稿页角标显示pending=0，待入库标题数=0 —— 三处不一致"
-    },
-    {
-      "category": "数据一致性",
-      "id": "A7-demo",
-      "title": "草稿页“待入库草稿(N)”的N == 角标pending数",
-      "status": "PASS",
-      "expected": "角标pending=0",
-      "actual": "标题N=0",
-      "detail": "标题把approved/conflict也算入“待入库”，角标只计pending"
-    },
-    {
-      "category": "数据一致性",
-      "id": "A8-demo",
-      "title": "冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值)",
-      "status": "FAIL",
-      "expected": "项目正确=0",
-      "actual": "端点返回=3",
-      "detail": "端点未按项目隔离，角标显示的是其它项目的冲突数"
+      "actual": "端点返回=0",
+      "detail": "一致"
     },
     {
       "category": "数据一致性",
@@ -161,24 +89,24 @@
       "status": "PASS",
       "expected": 0,
       "actual": 0,
-      "detail": "status分布={\"merged\":101,\"conflict\":3,\"rejected\":4}"
+      "detail": "status分布={\"merged\":125,\"rejected\":4}"
     },
     {
       "category": "数据一致性",
       "id": "A2-testCaseGenerator",
       "title": "stats.totalConflicts == 未处理冲突数",
       "status": "PASS",
-      "expected": 3,
-      "actual": 3,
+      "expected": 0,
+      "actual": 0,
       "detail": ""
     },
     {
       "category": "数据一致性",
       "id": "A3-testCaseGenerator",
       "title": "stats.totalPages == 知识库页面数",
-      "status": "FAIL",
-      "expected": 75,
-      "actual": 126,
+      "status": "PASS",
+      "expected": 100,
+      "actual": 100,
       "detail": "stats 统计全部 .md 分类，/api/brain/pages 仅返回部分分类(漏 code_interface/test-reports 等)，仪表盘页面数虚高"
     },
     {
@@ -186,13 +114,85 @@
       "id": "A4-testCaseGenerator",
       "title": "stats.totalCases == test-cases 页数",
       "status": "PASS",
-      "expected": 47,
-      "actual": 47,
+      "expected": 63,
+      "actual": 63,
       "detail": ""
     },
     {
       "category": "数据一致性",
       "id": "A5-testCaseGenerator",
+      "title": "stats.totalRules == quality-rules 页数",
+      "status": "PASS",
+      "expected": 3,
+      "actual": 3,
+      "detail": ""
+    },
+    {
+      "category": "数据一致性",
+      "id": "A6-testCaseGenerator",
+      "title": "草稿角标前后一致(均使用 pending 计数)",
+      "status": "PASS",
+      "expected": "pending=0",
+      "actual": "角标=0",
+      "detail": "侧边栏角标与草稿页角标均应使用 pending 计数"
+    },
+    {
+      "category": "数据一致性",
+      "id": "A7-testCaseGenerator",
+      "title": "草稿页“待入库草稿(N)”的N == pending数",
+      "status": "PASS",
+      "expected": "pending=0",
+      "actual": "标题N=0",
+      "detail": "标题与角标语义一致"
+    },
+    {
+      "category": "数据一致性",
+      "id": "A8-testCaseGenerator",
+      "title": "冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值)",
+      "status": "PASS",
+      "expected": "项目正确=0",
+      "actual": "端点返回=0",
+      "detail": "一致"
+    },
+    {
+      "category": "数据一致性",
+      "id": "A1-tg-yja078186",
+      "title": "stats.pendingDrafts == 实际 pending 草稿数",
+      "status": "PASS",
+      "expected": 0,
+      "actual": 0,
+      "detail": "status分布={}"
+    },
+    {
+      "category": "数据一致性",
+      "id": "A2-tg-yja078186",
+      "title": "stats.totalConflicts == 未处理冲突数",
+      "status": "PASS",
+      "expected": 0,
+      "actual": 0,
+      "detail": ""
+    },
+    {
+      "category": "数据一致性",
+      "id": "A3-tg-yja078186",
+      "title": "stats.totalPages == 知识库页面数",
+      "status": "PASS",
+      "expected": 51,
+      "actual": 51,
+      "detail": "stats 统计全部 .md 分类，/api/brain/pages 仅返回部分分类(漏 code_interface/test-reports 等)，仪表盘页面数虚高"
+    },
+    {
+      "category": "数据一致性",
+      "id": "A4-tg-yja078186",
+      "title": "stats.totalCases == test-cases 页数",
+      "status": "PASS",
+      "expected": 0,
+      "actual": 0,
+      "detail": ""
+    },
+    {
+      "category": "数据一致性",
+      "id": "A5-tg-yja078186",
       "title": "stats.totalRules == quality-rules 页数",
       "status": "PASS",
       "expected": 0,
@@ -201,57 +201,57 @@
     },
     {
       "category": "数据一致性",
-      "id": "A6-testCaseGenerator",
-      "title": "草稿角标前后一致(全局总数 vs 列表页pending)",
-      "status": "FAIL",
-      "expected": "列表页pending=0",
-      "actual": "全局总数=108",
-      "detail": "侧边栏角标显示总数108，草稿页角标显示pending=0，待入库标题数=3 —— 三处不一致"
+      "id": "A6-tg-yja078186",
+      "title": "草稿角标前后一致(均使用 pending 计数)",
+      "status": "PASS",
+      "expected": "pending=0",
+      "actual": "角标=0",
+      "detail": "侧边栏角标与草稿页角标均应使用 pending 计数"
     },
     {
       "category": "数据一致性",
-      "id": "A7-testCaseGenerator",
-      "title": "草稿页“待入库草稿(N)”的N == 角标pending数",
-      "status": "FAIL",
-      "expected": "角标pending=0",
-      "actual": "标题N=3",
-      "detail": "标题把approved/conflict也算入“待入库”，角标只计pending"
+      "id": "A7-tg-yja078186",
+      "title": "草稿页“待入库草稿(N)”的N == pending数",
+      "status": "PASS",
+      "expected": "pending=0",
+      "actual": "标题N=0",
+      "detail": "标题与角标语义一致"
     },
     {
       "category": "数据一致性",
-      "id": "A8-testCaseGenerator",
+      "id": "A8-tg-yja078186",
       "title": "冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值)",
       "status": "PASS",
-      "expected": "项目正确=3",
-      "actual": "端点返回=3",
+      "expected": "项目正确=0",
+      "actual": "端点返回=0",
       "detail": "一致"
     },
     {
       "category": "数据一致性",
       "id": "A9",
       "title": "冲突列表按项目隔离(default ≠ testCaseGenerator)",
-      "status": "FAIL",
-      "expected": "两项目集合应不同",
-      "actual": "两项目返回完全相同冲突集",
-      "detail": "/api/conflicts 忽略 project 参数，跨项目泄漏导致各项目冲突角标/列表显示错误数量"
+      "status": "PASS",
+      "expected": "default=0, tcg=0",
+      "actual": "已隔离",
+      "detail": ""
     },
     {
       "category": "展示错配",
       "id": "B1",
       "title": "overview/dashboard 绑定的 stats.* 字段均真实存在",
-      "status": "FAIL",
+      "status": "PASS",
       "expected": "均存在",
-      "actual": "缺失: pendingConflicts",
-      "detail": "模板引用了 totalPages, pendingDrafts, pendingConflicts, totalRules, totalCases, totalDefects, qualityScoreAvg, totalDrafts, mergedDrafts, rejectedDrafts；缺失字段(如 pendingConflicts)会导致展示恒为 0/undefined"
+      "actual": "缺失: 无",
+      "detail": "模板引用了 totalPages, pendingDrafts, totalConflicts, totalRules, totalCases, totalDefects, qualityScoreAvg, totalDrafts, mergedDrafts, rejectedDrafts；缺失字段(如 pendingConflicts)会导致展示恒为 0/undefined"
     },
     {
       "category": "流程逻辑",
       "id": "B2",
       "title": "冲突页“全选本页”复选框已绑定事件",
-      "status": "FAIL",
+      "status": "PASS",
       "expected": "有事件绑定",
-      "actual": "出现3次,处理函数=false,内联事件=false",
-      "detail": "复选框无 onchange/onclick 且无 toggleConflictSelectAll，全选功能失效"
+      "actual": "出现3次,处理函数=false,内联事件=false,事件委托=true",
+      "detail": ""
     },
     {
       "category": "流程逻辑",
@@ -266,10 +266,10 @@
       "category": "冗余变量",
       "id": "B4",
       "title": "草稿角标计算存在重复/语义分歧的两处实现",
-      "status": "FAIL",
+      "status": "PASS",
       "expected": "单处统一计算",
-      "actual": "refreshBadges用总数=true,草稿页用pending=true",
-      "detail": "同一“待处理草稿数”在两处用不同公式(总数 vs pending)，冗余且不一致(角标随页面跳变)"
+      "actual": "refreshBadges用总数=false,草稿页用pending=true",
+      "detail": ""
     },
     {
       "category": "冗余变量",
@@ -277,8 +277,8 @@
       "title": "模板内 id 属性无重复(列出供复核)",
       "status": "PASS",
       "expected": "无重复",
-      "actual": "无",
-      "detail": ""
+      "actual": "${n.id}(2)",
+      "detail": "重复项均为模板字符串插值，非真实 DOM 冲突"
     },
     {
       "category": "流程逻辑",
@@ -304,7 +304,7 @@
       "title": "demo 草稿不出现在 default 草稿列表",
       "status": "PASS",
       "expected": "不可见",
-      "actual": "demo草稿id=de8c6230-eb01-4232-a3f7-859f94ef12d5,在default可见=false",
+      "actual": "demo草稿id=3f7fc44a-8dcf-4b19-9ff4-442ca28992f8,在default可见=false",
       "detail": ""
     }
   ]

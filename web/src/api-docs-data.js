@@ -726,16 +726,79 @@ curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "no
           method: 'POST',
           path: '/api/business-graph',
           summary: '从文档重新生成业务图谱（AI 优先，确定性兜底）',
-          description: '从 project-wiki 的架构/PRD + API 文档重新生成 business-flows.json 并入库。body.ai=false 强制仅用确定性骨架。返回 { source, valid, nodes, edges, flows, path }。',
+          description: '从 project-wiki 重新生成 business-flows.json 并入库。body.ai=false 强制仅用确定性骨架。网页端采用「规划→逐场景生成→合并优化」渐进式流程（见 plan/scenario/optimize 端点）并实时显示进度。返回 { source, valid, nodes, edges, flows, path }。',
           params: [
             { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' },
             { name: 'ai', in: 'body', required: false, desc: 'true(默认)启用 AI 分析；false 仅确定性骨架' },
-            { name: 'sources', in: 'body', required: false, desc: '素材模式：[{id,title,content}]，仅基于所选项目 Wiki 页面生成；缺省全量扫描' }
+            { name: 'focus', in: 'body', required: false, desc: '聚焦模块 id 数组（如 ["api-server"]），限定生成范围；缺省全量扫描 project-wiki' },
+            { name: 'sources', in: 'body', required: false, desc: '（兼容旧调用）[{id,title,content}]；若含 api- 模块 id 则视为 focus。新前端建议改用 focus / plan·scenario·optimize 渐进式端点' }
           ],
-          requestExample: 'curl -X POST "{BASE}/business-graph?project=default" -H "Content-Type: application/json" -d \'{"ai": false, "sources": [{"id":"prd-1","title":"PRD","content":"..."}]}\'',
+          requestExample: 'curl -X POST "{BASE}/business-graph?project=default" -H "Content-Type: application/json" -d \'{"ai": true, "focus": ["api-server"]}\'',
           responseExample: `{
   "success": true,
   "data": { "source": "ai", "valid": true, "nodes": 38, "edges": 12, "flows": 5, "path": "brains/default/project-wiki/business-flows.json", "warnings": [] }
+}`
+        },
+        {
+          method: 'GET',
+          path: '/api/business-graph/modules',
+          summary: '获取项目 Wiki 中可聚焦的模块清单（API / PRD / 需求 / 实体）',
+          description: '返回 project-wiki 下所有可聚焦文档模块（id / title / kind），kind ∈ api|prd|req|entity。供网页「聚焦模块」下拉：类别复选框按 kind 分为「API 接口」(api) 与「Wiki 文档」(prd/req/entity)，entity 默认弱化显示。',
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' }
+          ],
+          requestExample: 'curl "{BASE}/business-graph/modules?project=default"',
+          responseExample: `{
+  "success": true,
+  "data": [ { "id": "api-server", "title": "Server 服务", "kind": "api" }, { "id": "prd-概要设计", "title": "概要设计", "kind": "prd" }, { "id": "entity-概念", "title": "核心概念", "kind": "entity" } ]
+}`
+        },
+        {
+          method: 'POST',
+          path: '/api/business-graph/plan',
+          summary: '规划业务场景种子（AI 优先，确定性兜底）',
+          description: '基于项目 Wiki 的模块清单与 PRD 摘要规划业务场景；AI 不可用时按模块首标签分组兜底。返回 { mode, scenarios:[{id,name,description,focus_modules,focus_tags}] }。',
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' },
+            { name: 'ai', in: 'body', required: false, desc: 'true(默认) 启用 AI 规划；false 仅确定性分组' },
+            { name: 'focus', in: 'body', required: false, desc: '聚焦模块 id 数组（如 ["api-server"]），限定规划范围；缺省全量' }
+          ],
+          requestExample: 'curl -X POST "{BASE}/business-graph/plan?project=default" -H "Content-Type: application/json" -d \'{"ai": true}\'',
+          responseExample: `{
+  "success": true,
+  "data": { "mode": "ai", "scenarios": [ { "id": "sc_commit", "name": "单条入库", "focus_modules": ["api-server","api-batch-commit"], "focus_tags": ["入库"] } ] }
+}`
+        },
+        {
+          method: 'POST',
+          path: '/api/business-graph/scenario',
+          summary: '生成单个业务场景子图',
+          description: '检索场景相关项目 Wiki 素材并调用 AI 生成节点/边/流程；AI 失败回退确定性骨架。返回 { nodes, edges, flow, related_modules }，related_modules 用于 BFS 扩散（发现未覆盖的关联模块）。',
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' },
+            { name: 'scenario', in: 'body', required: true, desc: '场景 spec：{id,name,description,focus_modules,focus_tags}' },
+            { name: 'ai', in: 'body', required: false, desc: 'true(默认) 启用 AI 生成；false 仅确定性骨架' }
+          ],
+          requestExample: 'curl -X POST "{BASE}/business-graph/scenario?project=default" -H "Content-Type: application/json" -d \'{"ai": true, "scenario": {"id":"sc_commit","name":"单条入库","focus_modules":["api-server"]}}\'',
+          responseExample: `{
+  "success": true,
+  "data": { "nodes": [ ... ], "edges": [ ... ], "flow": { "id": "sc_commit", "name": "单条入库", "steps": [ ... ] }, "related_modules": ["api-audit-log"] }
+}`
+        },
+        {
+          method: 'POST',
+          path: '/api/business-graph/optimize',
+          summary: '合并多场景子图并入库',
+          description: '合并逐场景生成的子图：跨场景节点去重、合并依赖边、分配稳定 id、构建业务域配色；写入 business-flows.json 并审计。返回 { data:{meta,domains,nodes,edges,flows}, warnings, path }。',
+          params: [
+            { name: 'project', in: 'query', required: false, desc: '项目隔离，默认 default' },
+            { name: 'scenarios', in: 'body', required: true, desc: '场景子图数组：[{scenario, nodes, edges, flow}]' },
+            { name: 'write', in: 'body', required: false, desc: 'true(默认) 写入 business-flows.json 入库；false 仅返回合并结果' }
+          ],
+          requestExample: 'curl -X POST "{BASE}/business-graph/optimize?project=default" -H "Content-Type: application/json" -d \'{"scenarios": [ ... ], "write": true}\'',
+          responseExample: `{
+  "success": true,
+  "data": { "data": { "meta": {...}, "domains": [...], "nodes": [...], "edges": [...], "flows": [...] }, "warnings": [], "path": "brains/default/project-wiki/business-flows.json" }
 }`
         }
       ]

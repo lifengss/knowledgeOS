@@ -1074,7 +1074,8 @@ curl "http://localhost:3000/api/business-graph?project=default"
 |------|------|------|------|
 | project | query | 否 | 项目隔离，默认 default |
 | ai | body | 否 | `true`（默认）启用 AI 分析；`false` 强制仅用确定性骨架 |
-| sources | body | 否 | 素材模式：`[{id, title, content}]`，仅基于所选「项目 Wiki」页面生成；缺省则全量扫描 project-wiki |
+| focus | body | 否 | 聚焦模块 id 数组（如 `["api-server"]`），限定生成范围；缺省全量扫描 project-wiki |
+| sources | body | 否 | （兼容旧调用）`[{id, title, content}]`；若含 `api-` 模块 id 则视为 focus。新前端建议改用下方渐进式端点 |
 
 **请求示例**：
 
@@ -1087,13 +1088,12 @@ curl -X POST "http://localhost:3000/api/business-graph?project=default" \
 curl -X POST "http://localhost:3000/api/business-graph?project=default" \
   -H "Content-Type: application/json" -d '{"ai": true}'
 
-# 仅基于所选素材（如两个 Wiki 页面）生成
+# 仅聚焦部分模块
 curl -X POST "http://localhost:3000/api/business-graph?project=default" \
-  -H "Content-Type: application/json" \
-  -d '{"ai": true, "sources": [{"id":"prd-xxx","title":"PRD","content":"..."}, {"id":"api-yyy","title":"API","content":"..."}]}'
+  -H "Content-Type: application/json" -d '{"ai": true, "focus": ["api-server","api-batch-commit"]}'
 ```
 
-> 网页端「业务流程依赖知识图谱」页提供 **选择素材生成** 按钮：弹框列出当前项目的「项目 Wiki」页面（复选），确认后自动读取所选页面内容并以上述 `sources` 形式提交。
+> 网页端「业务流程依赖知识图谱」页提供 **聚焦模块** 下拉（可选多模块）与 **AI 业务分析** 开关；点击「生成依赖图谱」后采用渐进式流程：先 `POST /business-graph/plan` 规划业务场景，再对每个场景 `POST /business-graph/scenario` 逐场景生成（BFS 扩散关联模块），最后 `POST /business-graph/optimize` 合并去重并入库，右下角实时显示「已生成 X 个场景 / 待处理 Y / 新发现 Z → 正在整理优化」。
 
 **响应示例**：
 
@@ -1113,6 +1113,70 @@ curl -X POST "http://localhost:3000/api/business-graph?project=default" \
 ```
 
 **注**：`source` 为 `ai`（AI 生成）或 `deterministic`（确定性骨架兜底）；重建会覆盖 `project-wiki/business-flows.json` 与 `.md`。
+
+### GET /api/business-graph/modules
+
+**功能**：返回 project-wiki 下所有可聚焦文档模块（`id` / `title` / `kind`，`kind ∈ api|prd|req|entity`），供网页「聚焦模块」下拉选择以限定生成范围。前端按 `kind` 分为「API 接口」(`api`) 与「Wiki 文档」(`prd`/`req`/`entity`) 两个类别复选框，默认仅勾选「API 接口」；`entity` 类在列表中弱化显示。AI 计算集群仿真系统等以 PRD/需求/实体为主、无 API 文档的项目，勾选「Wiki 文档」即可聚焦相应模块。
+
+**请求示例**：
+
+```bash
+curl "http://localhost:3000/api/business-graph/modules?project=default"
+```
+
+**响应示例**：
+
+```json
+{ "success": true, "data": [ { "id": "api-server", "title": "Server 服务", "kind": "api" }, { "id": "prd-概要设计", "title": "概要设计", "kind": "prd" }, { "id": "entity-概念", "title": "核心概念", "kind": "entity" } ] }
+```
+
+### POST /api/business-graph/plan
+
+**功能**：基于项目 Wiki 的模块清单与 PRD 摘要规划业务场景（AI 优先，确定性兜底）。AI 不可用时按模块首标签分组。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+| ai | body | 否 | `true`（默认）启用 AI 规划；`false` 仅确定性分组 |
+| focus | body | 否 | 聚焦模块 id 数组，限定规划范围；缺省全量 |
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "mode": "ai", "scenarios": [ { "id": "sc_commit", "name": "单条入库", "focus_modules": ["api-server","api-batch-commit"], "focus_tags": ["入库"] } ] } }
+```
+
+### POST /api/business-graph/scenario
+
+**功能**：检索场景相关项目 Wiki 素材并调用 AI 生成节点/边/流程；AI 失败回退确定性骨架。返回 `related_modules` 供 BFS 扩散（发现未覆盖的关联模块）。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+| scenario | body | 是 | 场景 spec：`{id, name, description, focus_modules, focus_tags}` |
+| ai | body | 否 | `true`（默认）启用 AI 生成；`false` 仅确定性骨架 |
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "nodes": [ ... ], "edges": [ ... ], "flow": { "id": "sc_commit", "name": "单条入库", "steps": [ ... ] }, "related_modules": ["api-audit-log"] } }
+```
+
+### POST /api/business-graph/optimize
+
+**功能**：合并多场景子图（跨场景节点去重、合并依赖边、分配稳定 id、构建业务域配色），写入 `business-flows.json` 并审计。
+
+| 参数 | 位置 | 必填 | 说明 |
+|------|------|------|------|
+| project | query | 否 | 项目隔离，默认 default |
+| scenarios | body | 是 | 场景子图数组：`[{scenario, nodes, edges, flow}]` |
+| write | body | 否 | `true`（默认）入库；`false` 仅返回合并结果 |
+
+**响应示例**：
+
+```json
+{ "success": true, "data": { "data": { "meta": {...}, "domains": [...], "nodes": [...], "edges": [...], "flows": [...] }, "warnings": [], "path": "brains/default/project-wiki/business-flows.json" } }
+```
 
 ---
 

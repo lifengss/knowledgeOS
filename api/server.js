@@ -15,6 +15,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const multer = require('multer');
 const iconv = require('iconv-lite');
+const logger = require('./logger');
 
 // 读取文本文件：自动探测 UTF-8 / GBK / GB2312 / GB18030 编码，避免 Windows 记事本默认 ANSI 导致乱码
 function readTextFile(filePath) {
@@ -97,6 +98,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // 静态文件：Web UI
 app.use(express.static(path.join(PROJECT_ROOT, 'web')));
 
+// 请求日志（方法 / 路径 / 状态 / 耗时），写入 logs/app-*.log（保留 7 天）
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    logger.http(req, res, Date.now() - start, { ip: req.ip });
+  });
+  next();
+});
+
 // ---------------------------------------------------------------
 // 辅助函数：调用 Python Skill
 // ---------------------------------------------------------------
@@ -119,6 +129,9 @@ function callPython(scriptPath, args = []) {
 
     proc.on('close', (code) => {
       if (code !== 0) {
+        logger.error(new Error(`Python ${scriptPath} exited ${code}`), {
+          script: scriptPath, args: args, stderr: (stderr || '').slice(0, 800),
+        });
         reject(new Error(`Python script exited with code ${code}: ${stderr || stdout}`));
       } else {
         try {
@@ -1821,6 +1834,88 @@ app.post('/api/business-graph', async (req, res) => {
   }
 });
 
+// GET /api/business-graph/modules - 返回 project-wiki 中可聚焦的模块清单（API / PRD / 需求 / 实体），供聚焦生成用
+app.get('/api/business-graph/modules', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
+    const pw = path.join(brainRepo, 'project-wiki');
+    const out = [];
+    if (fs.existsSync(pw)) {
+      for (const fn of fs.readdirSync(pw).sort()) {
+        if (!fn.endsWith('.md')) continue;
+        const id = fn.slice(0, -3);
+        if (id === 'business-flows') continue;
+        let kind = 'other';
+        if (fn.startsWith('api-')) kind = 'api';
+        else if (fn.startsWith('prd-')) kind = 'prd';
+        else if (fn.startsWith('req-')) kind = 'req';
+        else if (fn.startsWith('entity-')) kind = 'entity';
+        if (kind === 'other') continue; // 仅暴露可聚焦文档
+        const text = readTextFile(path.join(pw, fn));
+        const m = text.match(/^---\s*\n(?:.*\n)*?title:\s*(.+?)\s*\n/);
+        out.push({ id, title: (m && m[1]) || id.replace(/^(api-|prd-|req-|entity-)/, ''), kind });
+      }
+    }
+    res.json({ success: true, data: out });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/business-graph/plan - 规划业务场景种子（AI 优先，确定性兜底）
+app.post('/api/business-graph/plan', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
+    const useAi = !(req.body && req.body.ai === false);
+    const args = ['plan', '--brain', brainRepo, useAi ? '--ai' : '--no-ai'];
+    if (req.body && req.body.focus && Array.isArray(req.body.focus) && req.body.focus.length) {
+      args.push('--focus', req.body.focus.join(','));
+    }
+    const out = await callPython('skills/business_graph_builder.py', args);
+    res.json({ success: true, data: out });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/business-graph/scenario - 生成单个业务场景子图
+app.post('/api/business-graph/scenario', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
+    const useAi = !(req.body && req.body.ai === false);
+    const scenario = req.body && req.body.scenario;
+    if (!scenario) return res.status(400).json({ success: false, error: 'scenario required' });
+    const tmp = path.join(PROJECT_ROOT, 'data', `bg-sc-${Date.now()}.json`);
+    fs.writeFileSync(tmp, JSON.stringify(scenario), 'utf-8');
+    const args = ['scenario', '--brain', brainRepo, '--scenario-file', tmp, useAi ? '--ai' : '--no-ai'];
+    const out = await callPython('skills/business_graph_builder.py', args);
+    try { fs.unlinkSync(tmp); } catch (e) {}
+    res.json({ success: true, data: out });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/business-graph/optimize - 合并多场景子图并入库（写 business-flows.json）
+app.post('/api/business-graph/optimize', async (req, res) => {
+  try {
+    const pid = resolveProject(req);
+    const brainRepo = projects.resolveBrainDir(pid);
+    const scenarios = (req.body && req.body.scenarios) || [];
+    const tmp = path.join(PROJECT_ROOT, 'data', `bg-opt-${Date.now()}.json`);
+    fs.writeFileSync(tmp, JSON.stringify(scenarios), 'utf-8');
+    const args = ['optimize', '--brain', brainRepo, '--scenarios-file', tmp, '--write'];
+    const out = await callPython('skills/business_graph_builder.py', args);
+    try { fs.unlinkSync(tmp); } catch (e) {}
+    res.json({ success: true, data: out });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/graph-data', async (req, res) => {
   try {
     const pid = resolveProject(req);
@@ -2106,6 +2201,7 @@ app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
   }
+  logger.error(err, { path: req.path || req.url, method: req.method });
   const status =
     err.status ||
     err.statusCode ||
@@ -2117,6 +2213,16 @@ app.use((err, req, res, next) => {
 // ---------------------------------------------------------------
 // 启动服务器
 // ---------------------------------------------------------------
+// 进程级未捕获异常记录（不阻断原有行为，仅落盘便于事后诊断）
+process.on('uncaughtException', (err) => {
+  logger.error(err, { phase: 'uncaughtException' });
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error(reason instanceof Error ? reason : new Error(String(reason)), {
+    phase: 'unhandledRejection',
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`KnowledgeOS API Server running on http://localhost:${PORT}`);
   console.log(`Web UI: http://localhost:${PORT}/index.html`);

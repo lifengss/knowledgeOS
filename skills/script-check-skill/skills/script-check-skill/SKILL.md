@@ -18,7 +18,7 @@ writes_pages: false
 
 当智能体创建或修改 `test-knowledge-system/` 下的脚本、API、模块、Skill 文件时，自动检查其中的函数名、类名、API 接口名、参数设置是否与以下两份文档一致：
 
-1. `知识管理系统-V1.0架构设计与技术方案.md`（总体架构与模块设计）
+1. `知识管理系统-V1.2架构设计与技术方案.md`（总体架构与模块设计）
 2. `test-knowledge-system/docs/API-INTERFACE-DOC.md`（接口文档）
 
 如果发现新增但未在文档中记录的函数、类、API 端点，应标记出来，并提示需要同步更新上述文档。
@@ -36,7 +36,7 @@ writes_pages: false
 
 - 待检查的文件路径或文件内容
 - （可选）需要比对的文档路径，默认：
-  - `d:/self_coding/knowledgeOS/知识管理系统-V1.0架构设计与技术方案.md`
+  - `d:/self_coding/knowledgeOS/知识管理系统-V1.2架构设计与技术方案.md`
   - `d:/self_coding/knowledgeOS/test-knowledge-system/docs/API-INTERFACE-DOC.md`
 
 ## 检查规则
@@ -96,7 +96,7 @@ writes_pages: false
 如果目标文件中包含未在文档中定义的函数、类、API 端点，标记为 `NEW_SYMBOL`，并建议：
 
 - 如果是 V1.0 需要的功能：更新 `API-INTERFACE-DOC.md` 第 4 节"内部模块接口"
-- 如果是架构层面的变化：更新 `知识管理系统-V1.0架构设计与技术方案.md`
+- 如果是架构层面的变化：更新 `知识管理系统-V1.2架构设计与技术方案.md`
 
 ## 输出格式
 
@@ -134,7 +134,7 @@ writes_pages: false
 ## 执行步骤
 
 1. 读取目标文件内容
-2. 读取 `API-INTERFACE-DOC.md` 和 `知识管理系统-V1.0架构设计与技术方案.md`
+2. 读取 `API-INTERFACE-DOC.md` 和 `知识管理系统-V1.2架构设计与技术方案.md`
 3. 使用正则表达式提取目标文件中的函数、类、API 端点
 4. 与文档中提取的符号表进行比对
 5. 生成一致性报告

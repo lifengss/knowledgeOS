@@ -1,33 +1,33 @@
 # test-knowledge-system 回归测试报告（修复后）
 
-- 生成时间：2026-07-24T01:28:05.216Z
+- 生成时间：2026-07-28T03:14:49.573Z
 - 测试对象：test-knowledge-system（KS API :3000）
-- 覆盖项目：default, demo, testCaseGenerator
+- 覆盖项目：default, testCaseGenerator, tg-yja078186
 - 结果汇总：总计 29 项 ｜ ✅ PASS 29 ｜ ❌ FAIL 0 ｜ ⚠️ WARN 0
 
 ## 数据一致性
 
 | 编号 | 检查项 | 结果 | 期望 | 实际 | 说明 |
 |------|--------|------|------|------|------|
-| A1-default | stats.pendingDrafts == 实际 pending 草稿数 | PASS | 0 | 0 | status分布={"rejected":37,"merged":127,"discarded":10} |
+| A1-default | stats.pendingDrafts == 实际 pending 草稿数 | PASS | 14 | 14 | status分布={"merged":139,"pending":14,"approved":8,"rejected":46,"discarded":10} |
 | A2-default | stats.totalConflicts == 未处理冲突数(已按项目隔离) | PASS | 0 | 0 |  |
-| A3-default | stats.totalPages == 知识库页面数(同口径) | PASS | 206 | 206 |  |
-| A4-default | stats.totalCases == test-cases 页数 | PASS | 118 | 118 |  |
-| A5-default | stats.totalRules == quality-rules 页数 | PASS | 20 | 20 |  |
+| A3-default | stats.totalPages == 知识库页面数(同口径) | PASS | 253 | 253 |  |
+| A4-default | stats.totalCases == test-cases 页数 | PASS | 119 | 119 |  |
+| A5-default | stats.totalRules == quality-rules 页数 | PASS | 54 | 54 |  |
 | A8-default | 冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值) | PASS | 项目正确=0 | 端点返回=0 | 一致 |
-| A1-demo | stats.pendingDrafts == 实际 pending 草稿数 | PASS | 0 | 0 | status分布={"merged":2,"rejected":5} |
-| A2-demo | stats.totalConflicts == 未处理冲突数(已按项目隔离) | PASS | 0 | 0 |  |
-| A3-demo | stats.totalPages == 知识库页面数(同口径) | PASS | 1 | 1 |  |
-| A4-demo | stats.totalCases == test-cases 页数 | PASS | 0 | 0 |  |
-| A5-demo | stats.totalRules == quality-rules 页数 | PASS | 1 | 1 |  |
-| A8-demo | 冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值) | PASS | 项目正确=0 | 端点返回=0 | 一致 |
-| A1-testCaseGenerator | stats.pendingDrafts == 实际 pending 草稿数 | PASS | 0 | 0 | status分布={"merged":101,"conflict":3,"rejected":4} |
-| A2-testCaseGenerator | stats.totalConflicts == 未处理冲突数(已按项目隔离) | PASS | 3 | 3 |  |
-| A3-testCaseGenerator | stats.totalPages == 知识库页面数(同口径) | PASS | 75 | 75 |  |
-| A4-testCaseGenerator | stats.totalCases == test-cases 页数 | PASS | 47 | 47 |  |
-| A5-testCaseGenerator | stats.totalRules == quality-rules 页数 | PASS | 0 | 0 |  |
-| A8-testCaseGenerator | 冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值) | PASS | 项目正确=3 | 端点返回=3 | 一致 |
-| A9 | 冲突列表按项目隔离(default ≠ testCaseGenerator) | PASS | 两项目集合应不同 | 已隔离 | 已修复：各项目仅返回自身冲突 |
+| A1-testCaseGenerator | stats.pendingDrafts == 实际 pending 草稿数 | PASS | 0 | 0 | status分布={"merged":125,"rejected":4} |
+| A2-testCaseGenerator | stats.totalConflicts == 未处理冲突数(已按项目隔离) | PASS | 0 | 0 |  |
+| A3-testCaseGenerator | stats.totalPages == 知识库页面数(同口径) | PASS | 100 | 100 |  |
+| A4-testCaseGenerator | stats.totalCases == test-cases 页数 | PASS | 63 | 63 |  |
+| A5-testCaseGenerator | stats.totalRules == quality-rules 页数 | PASS | 3 | 3 |  |
+| A8-testCaseGenerator | 冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值) | PASS | 项目正确=0 | 端点返回=0 | 一致 |
+| A1-tg-yja078186 | stats.pendingDrafts == 实际 pending 草稿数 | PASS | 0 | 0 | status分布={} |
+| A2-tg-yja078186 | stats.totalConflicts == 未处理冲突数(已按项目隔离) | PASS | 0 | 0 |  |
+| A3-tg-yja078186 | stats.totalPages == 知识库页面数(同口径) | PASS | 51 | 51 |  |
+| A4-tg-yja078186 | stats.totalCases == test-cases 页数 | PASS | 0 | 0 |  |
+| A5-tg-yja078186 | stats.totalRules == quality-rules 页数 | PASS | 0 | 0 |  |
+| A8-tg-yja078186 | 冲突角标(未处理冲突数) == stats.totalConflicts(项目正确值) | PASS | 项目正确=0 | 端点返回=0 | 一致 |
+| A9 | 冲突列表按项目隔离(default ≠ testCaseGenerator) | PASS | default=0, tcg=0 | 已隔离 | 已修复：各项目仅返回自身冲突 |
 | A6 | 草稿角标全局与页面统一使用 pending 计数(静态检查) | PASS | 角标只用pending | refresh用总数=false,refresh用pending=true,页面用pending=true | 修复后：refreshBadges 草稿角标改用 pending，与草稿页角标一致 |
 | A7 | 草稿页“待入库草稿(N)”的 N == pendingCount(静态检查) | PASS | 标题用pendingCount | 标题用pendingCount=true,标题用visible=false | 修复后：标题与角标语义统一为待处理草稿数 |
 
@@ -51,13 +51,13 @@
 | 编号 | 检查项 | 结果 | 期望 | 实际 | 说明 |
 |------|--------|------|------|------|------|
 | B4 | 草稿角标计算无重复/语义分歧的两处实现 | PASS | 单处统一计算 | refreshBadges用总数=false,草稿页用pending=true | 修复后：角标统一为 pending 计数 |
-| B5 | 模板内 id 属性无重复(列出供复核) | PASS | 无重复 | 无 |  |
+| B5 | 模板内 id 属性无重复(列出供复核) | PASS | 无重复 | ${n.id}(2) | 重复项均为模板字符串插值，非真实 DOM 冲突 |
 
 ## 项目隔离
 
 | 编号 | 检查项 | 结果 | 期望 | 实际 | 说明 |
 |------|--------|------|------|------|------|
-| E1 | demo 草稿不出现在 default 草稿列表 | PASS | 不可见 | demo草稿id=f0df461d-1731-4084-b719-7a40eb282ad0,在default可见=false |  |
+| E1 | demo 草稿不出现在 default 草稿列表 | PASS | 不可见 | demo草稿id=a5fb8fcc-ffe0-4b2c-9112-77439cbe2cbd,在default可见=false |  |
 
 ## 修复与回归说明
 

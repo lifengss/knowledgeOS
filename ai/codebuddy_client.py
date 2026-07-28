@@ -15,8 +15,11 @@ CodeBuddy 通道客户端（对齐 testcase-gen-frontend/server/codebuddy-client
 import os
 import sys
 import json
+import time
 import shutil
 import subprocess
+
+from llm_logger import log_llm
 
 
 def resolve_node():
@@ -24,8 +27,19 @@ def resolve_node():
 
 
 def resolve_cli_script():
+    """定位全局 codebuddy CLI 入口脚本（供 `node <脚本>` 直接启动）。
+
+    解析顺序（不依赖 npm 是否在 PATH 上，避免子进程环境缺失 npm 时回退成
+    裸 'codebuddy' 被 node 当作相对路径而瞬间报错）：
+      1. 环境变量 CODEBUDDY_CODE_PATH
+      2. `npm root -g` 下的 @tencent-ai/codebuddy-code/bin/codebuddy
+      3. 由 which/where 找到的 codebuddy 可执行反推全局 node_modules/bin 脚本
+      4. 常见 Windows npm 前缀下的全局 node_modules/bin 脚本
+      5. 最后才回退裸 'codebuddy'（仅 Linux/macOS 上可靠）
+    """
     if os.environ.get('CODEBUDDY_CODE_PATH'):
         return os.environ['CODEBUDDY_CODE_PATH']
+    # 2) npm 全局路径
     try:
         groot = subprocess.check_output(['npm', 'root', '-g'], encoding='utf-8').strip()
         p = os.path.join(groot, '@tencent-ai', 'codebuddy-code', 'bin', 'codebuddy')
@@ -33,6 +47,23 @@ def resolve_cli_script():
             return p
     except Exception:
         pass
+    # 3) 由 which/where 反推
+    for exe in ('codebuddy', 'codebuddy.cmd', 'codebuddy.ps1'):
+        wp = shutil.which(exe)
+        if wp:
+            npm_dir = os.path.dirname(wp)
+            cand = os.path.join(npm_dir, 'node_modules', '@tencent-ai',
+                                'codebuddy-code', 'bin', 'codebuddy')
+            if os.path.exists(cand):
+                return cand
+    # 4) 常见 Windows npm 前缀
+    home = os.path.expanduser('~')
+    for base in (os.path.join(home, 'AppData', 'Roaming', 'npm'),
+                 os.path.join(home, 'AppData', 'Roaming', 'nodejs')):
+        cand = os.path.join(base, 'node_modules', '@tencent-ai',
+                            'codebuddy-code', 'bin', 'codebuddy')
+        if os.path.exists(cand):
+            return cand
     return 'codebuddy'
 
 
@@ -66,13 +97,26 @@ def call_codebuddy(prompt, model=None, max_turns=4, timeout=120, load_settings=F
     if os.environ.get('CODEBUDDY_INTERNET_ENVIRONMENT'):
         env['CODEBUDDY_INTERNET_ENVIRONMENT'] = os.environ['CODEBUDDY_INTERNET_ENVIRONMENT']
 
+    t0 = time.time()
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout)
+        # Windows 默认 locale 为 gbk，而 codebuddy 输出为 UTF-8（含中文），
+        # 必须用 encoding='utf-8' 显式解码，否则 gbk 解码崩溃导致 proc.stdout 为 None。
+        proc = subprocess.run(args, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace', env=env, timeout=timeout)
     except subprocess.TimeoutExpired:
+        log_llm('codebuddy', model_eff, (time.time() - t0) * 1000, prompt, None,
+                False, error='codebuddy 生成超时')
         raise RuntimeError('codebuddy 生成超时')
+    except Exception as e:
+        log_llm('codebuddy', model_eff, (time.time() - t0) * 1000, prompt, None,
+                False, error='subprocess error: %s' % e)
+        raise
 
     if proc.returncode != 0 and not proc.stdout.strip():
-        raise RuntimeError('codebuddy 退出码 %d: %s' % (proc.returncode, proc.stderr[:600]))
+        err = 'codebuddy 退出码 %d: %s' % (proc.returncode, proc.stderr[:600])
+        log_llm('codebuddy', model_eff, (time.time() - t0) * 1000, prompt, None,
+                False, error=err)
+        raise RuntimeError(err)
 
     text = ''
     for line in proc.stdout.split('\n'):
@@ -89,7 +133,10 @@ def call_codebuddy(prompt, model=None, max_turns=4, timeout=120, load_settings=F
                 for b in content:
                     if isinstance(b, dict) and b.get('type') == 'text':
                         text += b.get('text', '')
-    return text.strip() or None
+    result = text.strip() or None
+    log_llm('codebuddy', model_eff, (time.time() - t0) * 1000, prompt, result,
+            result is not None)
+    return result
 
 
 if __name__ == '__main__':
