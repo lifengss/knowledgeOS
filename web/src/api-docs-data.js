@@ -509,7 +509,7 @@ window.KB_API_DOCS = {
           description: 'multipart 上传文件（支持代码压缩包 zip/tar/7z 或单文件），或 JSON 直接传 content。',
           params: [
             { name: 'file', in: 'form', required: false, desc: '上传文件（代码类自动解析）' },
-            { name: 'type', in: 'form/body', required: false, desc: '数据类型：code(默认)/prd/requirement/defect/report' },
+            { name: 'type', in: 'form/body', required: false, desc: '数据类型：code(默认)/prd/requirement/test-report/defect/report' },
             { name: 'note', in: 'form/body', required: false, desc: '文档标题/备注' },
             { name: 'content', in: 'body', required: false, desc: '非文件上传时直接传正文' },
             { name: 'project', in: 'body', required: false, desc: '归属项目，默认 default' }
@@ -519,12 +519,26 @@ curl -X POST {BASE}/source-upload -F "file=@code.zip" -F "type=code" -F "project
 # PRD（沉淀为项目描述 Wiki）
 curl -X POST {BASE}/source-upload -F "file=@prd.md" -F "type=prd" -F "note=电商平台PRD" -F "project=default"
 # 需求列表
-curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "note=需求列表" -F "project=default"`,
+curl -X POST {BASE}/source-upload -F "file=@req.md" -F "type=requirement" -F "note=需求列表" -F "project=default"
+# 回测报告（JSON，自动解析拆分为多条缺陷经验）
+curl -X POST {BASE}/source-upload -F "file=@report.json" -F "type=test-report" -F "note=回归报告R1" -F "project=default"`,
           responseExample: `{
   "success": true,
   "data": { "summary": "已沉淀为项目描述 Wiki：prd-xxx.md", "slug": "prd-xxx", "uploadType": "prd", "category": "project-wiki" }
+}
+
+// type=test-report 且为可拆分 JSON 时（slug 取首条，slugs 为全量，count 为记录数）：
+{
+  "success": true,
+  "data": { "summary": "已拆分沉淀为缺陷经验：14 条记录", "slug": "de-回归报告R1-1", "slugs": ["de-回归报告R1-1", "..."], "count": 14, "uploadType": "test-report", "category": "defect-experience" }
+}
+
+// type=test-report 非 JSON / 无记录数组时，退化为单页沉淀：
+{
+  "success": true,
+  "data": { "summary": "已沉淀为缺陷经验(defect-experience)：de-xxx.md", "slug": "de-xxx", "uploadType": "test-report", "category": "defect-experience" }
 }`,
-          notes: 'code → 解压切片解析写入草稿并生成 API 依赖图谱(api-overview.md)；prd/requirement → 直接写入 project-wiki（前端「按功能模块」测试范围的数据源），区别于代码产生的 API 调用依赖图谱。'
+          notes: 'code → 解压切片解析写入草稿并生成 API 依赖图谱(api-overview.md)；prd/requirement → 直接写入 project-wiki（前端「按功能模块」测试范围的数据源），区别于代码产生的 API 调用依赖图谱。test-report(JSON) → 自动解析拆分：优先取 cases 数组（兼容 results/tests/records/items/entries 或顶层数组），每条生成独立 defect-experience 页面（标题取 name/title/id，带 caseId/status/severity/group 元数据），整份原始报告留存 raw/ 溯源；非 JSON/无记录时退化为单页。当前版本所有拆分记录统一归类为缺陷经验，按记录类别分流为 V2.0 规划。'
         },
         {
           method: 'GET',

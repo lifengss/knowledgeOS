@@ -704,7 +704,7 @@ curl -X POST http://localhost:3000/api/generate-cases \
 | 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
 | file | form | 否 | 上传文件（代码类自动解析） |
-| type | form/body | 否 | 数据类型：code(默认)/prd/requirement/defect/report |
+| type | form/body | 否 | 数据类型：code(默认)/prd/requirement/test-report/defect/report |
 | note | form/body | 否 | 文档标题/备注 |
 | content | body | 否 | 非代码类型时直接传正文 |
 | project | body | 否 | 归属项目，默认 default |
@@ -718,6 +718,8 @@ curl -X POST http://localhost:3000/api/source-upload -F "file=@code.zip" -F "typ
 curl -X POST http://localhost:3000/api/source-upload -F "file=@prd.md" -F "type=prd" -F "note=电商平台PRD" -F "project=default"
 # 需求列表（直接沉淀为项目描述 Wiki，优先级高于 PRD）
 curl -X POST http://localhost:3000/api/source-upload -F "file=@req.md" -F "type=requirement" -F "note=需求列表" -F "project=default"
+# 回测报告（JSON，自动解析拆分为多条记录，当前版本统一沉淀为缺陷经验）
+curl -X POST http://localhost:3000/api/source-upload -F "file=@report.json" -F "type=test-report" -F "note=回归报告R1" -F "project=default"
 # 纯文本直接沉淀（无文件，JSON content）→ 用于 AI 生成的大纲直接入库
 curl -X POST http://localhost:3000/api/source-upload \
   -H "Content-Type: application/json" \
@@ -728,7 +730,15 @@ curl -X POST http://localhost:3000/api/source-upload \
 
 ```json
 { "success": true, "data": { "summary": "已沉淀为项目描述 Wiki：prd-xxx.md", "slug": "prd-xxx", "uploadType": "prd", "category": "project-wiki" } }
+
+// type=test-report 且为可拆分 JSON 时，返回多条记录（slug 取首条，slugs 为全量，count 为记录数）：
+{ "success": true, "data": { "summary": "已拆分沉淀为缺陷经验：14 条记录", "slug": "de-回归报告R1-1", "slugs": ["de-回归报告R1-1", "...", "de-回归报告R1-14"], "count": 14, "uploadType": "test-report", "category": "defect-experience" } }
+
+// type=test-report 但非 JSON / 无记录数组时，退化为单页沉淀（兼容 Markdown/纯文本）：
+{ "success": true, "data": { "summary": "已沉淀为缺陷经验(defect-experience)：de-xxx.md", "slug": "de-xxx", "uploadType": "test-report", "category": "defect-experience" } }
 ```
+
+**注**：`type=test-report` 的 JSON 报告会被自动解析：优先取 `cases` 数组（兼容 `results/tests/records/items/entries` 或顶层数组），每条记录生成独立 `defect-experience/<slug>-<序号>.md` 页面（标题取 `name/title/id`，并带 `caseId/status/severity/group` 元数据），整份原始报告留存 `raw/` 溯源。**当前版本所有拆分记录统一归类为缺陷经验**；按记录类别（历史测试用例 / 缺陷经验等）识别与分流为 V2.0 规划需求（见 V2.0 规划文档）。
 
 **注**：code → 解压切片解析写入草稿并生成 API 依赖图谱(api-overview.md)；prd/requirement → 直接写入 project-wiki（前端「按功能模块」测试范围的数据源），区别于代码产生的 API 调用依赖图谱。
 

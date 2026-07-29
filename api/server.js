@@ -56,6 +56,63 @@ function repairMixedMojibake(s) {
   });
 }
 
+// 从回测报告文本中抽取可拆分的记录数组。兼容常见键名 cases/results/tests/records/items/entries，
+// 或直接顶层数组；均无法定位时回退为 [整份对象]（单条）。非 JSON 返回空数组（由调用方退化为单页沉淀）。
+function extractTestReportRecords(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return []; }
+  if (Array.isArray(parsed)) return parsed.filter(r => r && typeof r === 'object' && !Array.isArray(r));
+  if (parsed && typeof parsed === 'object') {
+    for (const key of ['cases', 'results', 'tests', 'records', 'items', 'entries', 'testCases', 'scenarios']) {
+      const v = parsed[key];
+      if (Array.isArray(v)) return v.filter(r => r && typeof r === 'object' && !Array.isArray(r));
+    }
+    return [parsed];
+  }
+  return [];
+}
+
+// 将不同格式的测试报告记录归一化为统一字段，供 defect-experience 沉淀使用。
+// 支持 pytest-json-report 标准格式（nodeid / outcome / failure），同时兼容
+// 自带 name/title/id/status/severity/group/evidence/detail 的自定义格式。
+function normalizeTestReportRecord(rec) {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return rec;
+  const out = Object.assign({}, rec);
+  // pytest: nodeid -> 标题取末段方法名，完整 nodeid 保留为 caseId
+  if (rec.nodeid) {
+    const nodeid = String(rec.nodeid);
+    const seg = nodeid.split('::').pop();
+    out.title = seg || nodeid;
+    out.id = nodeid;
+    out.caseId = nodeid;
+  }
+  // pytest: outcome -> status
+  if (rec.outcome) {
+    const m = { passed: 'pass', failed: 'fail', error: 'error', skipped: 'skip', xfail: 'xfail', xpass: 'xpass' };
+    out.status = m[String(rec.outcome).toLowerCase()] || String(rec.outcome);
+  }
+  // failure / error / stack -> 可读证据
+  const failure = rec.failure || rec.error || rec.stack;
+  if (failure && typeof failure === 'object') {
+    const lines = [];
+    if (failure.type) lines.push(`类型(type): ${failure.type}`);
+    if (failure.message) lines.push(`信息(message): ${failure.message}`);
+    if (typeof failure.missing_assertion === 'boolean') lines.push(`缺失断言(missing_assertion): ${failure.missing_assertion}`);
+    if (typeof failure.boundary === 'boolean') lines.push(`边界场景(boundary): ${failure.boundary}`);
+    out.evidence = lines.join('\n');
+    out.detail = failure.message || JSON.stringify(failure, null, 2);
+  } else if (typeof failure === 'string') {
+    out.evidence = failure;
+    out.detail = failure;
+  }
+  // 通过用例无 failure：补耗时，提升可读性
+  if (!out.evidence) {
+    const dur = rec.duration != null ? `${rec.duration}s` : '未知';
+    out.evidence = `用例通过，耗时 ${dur}。`;
+  }
+  return out;
+}
+
 // 代理支持：Node 全局 fetch(undici) 默认不读取 HTTP(S)_PROXY。若后端机器需经代理才能访问外网
 // （典型表现：浏览器能访问 api.icompify.com，但 KS 后端调用连不上），在此显式设置全局 dispatcher。
 const _proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
@@ -806,9 +863,6 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
         text = req.body.content || '';
       }
       const brainDir = projects.resolveBrainDir(req.body.project || 'default');
-      const catDir = path.join(brainDir, type === 'test-report' ? 'test-reports' : 'project-wiki');
-      fs.mkdirSync(catDir, { recursive: true });
-      const prefix = type === 'requirement' ? 'req' : (type === 'test-report' ? 'tr' : 'prd');
       const fileBase = req.file ? path.basename(req.file.originalname, path.extname(req.file.originalname)) : '';
       const bodyName = req.body.filename ? String(req.body.filename).replace(/\.[^.]+$/, '') : '';
       const sourceFile = req.body.filename || (req.file ? req.file.originalname : '');
@@ -816,7 +870,68 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
       const rawName = repairMixedMojibake(note || bodyName || fileBase || type);
       const safeSourceFile = repairMixedMojibake(sourceFile);
       const base = rawName.replace(/[^\w\u4e00-\u9fa5-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || type;
-      // 唯一化 slug：同名文档重复上传不再相互覆盖，依次追加 -2 / -3 …
+
+      // 回测报告：JSON 格式自动解析拆分为多条记录（当前版本统一标签为「缺陷经验」）
+      if (type === 'test-report') {
+        const catDir = path.join(brainDir, 'defect-experience');
+        fs.mkdirSync(catDir, { recursive: true });
+        fs.mkdirSync(path.join(catDir, 'raw'), { recursive: true });
+        const records = extractTestReportRecords(text).map(normalizeTestReportRecord);
+        const slug = `de-${base}`;
+        // 整份原始报告溯源副本（无论是否拆分都保留，便于回测复盘）
+        fs.writeFileSync(path.join(catDir, 'raw', `${slug}-raw.md`), `# ${rawName}（原始测试报告）\n\n${text}\n`, 'utf-8');
+        if (records.length) {
+          const rawRel = `raw/${slug}-raw.md`;
+          const slugs = [];
+          records.forEach((rec, i) => {
+            const cSlug = `${slug}-${i + 1}`;
+            const rTitle = String(rec.name || rec.title || rec.id || `记录#${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 80);
+            const fm = [
+              '---',
+              'uploadType: test-report',
+              `title: ${rTitle}`,
+              `caseId: ${rec.id || ''}`,
+              `status: ${rec.status || ''}`,
+              `severity: ${rec.severity || ''}`,
+              `group: ${rec.group || ''}`,
+              `sourceFile: ${safeSourceFile}`,
+              `raw: ${rawRel}`,
+              `uploadedAt: ${new Date().toISOString()}`,
+              '---',
+              `# ${rTitle}（${rec.id || '记录' + (i + 1)}）`,
+              '',
+              `- 状态(status)：${rec.status || '-'}`,
+              `- 严重度(severity)：${rec.severity || '-'}`,
+              `- 分组(group)：${rec.group || '-'}`,
+              '',
+              '## 证据(evidence)',
+              '```',
+              String(rec.evidence || ''),
+              '```',
+              '',
+              '## 细节(detail)',
+              '```',
+              String(rec.detail || ''),
+              '```',
+              ''
+            ].join('\n');
+            fs.writeFileSync(path.join(catDir, cSlug + '.md'), fm, 'utf-8');
+            slugs.push(cSlug);
+          });
+          res.json({ success: true, data: { summary: `已拆分沉淀为缺陷经验：${slugs.length} 条记录`, slug: slugs[0], slugs, count: slugs.length, uploadType: 'test-report', category: 'defect-experience' } });
+          return;
+        }
+        // 非 JSON / 无 records：退化为单页沉淀（保持对 Markdown/纯文本的兼容）
+        const fm = `---\nuploadType: test-report\ntitle: ${rawName}\nsourceFile: ${safeSourceFile}\nraw: raw/${slug}-raw.md\nuploadedAt: ${new Date().toISOString()}\n---\n# ${rawName}\n\n${text}`;
+        fs.writeFileSync(path.join(catDir, slug + '.md'), fm, 'utf-8');
+        res.json({ success: true, data: { summary: `已沉淀为缺陷经验(defect-experience)：${slug}.md`, slug, uploadType: 'test-report', category: 'defect-experience' } });
+        return;
+      }
+
+      // PRD / 需求列表 → 项目 Wiki（单页沉淀，与代码产生的 API 调用依赖图谱区分）
+      const catDir = path.join(brainDir, 'project-wiki');
+      fs.mkdirSync(catDir, { recursive: true });
+      const prefix = type === 'requirement' ? 'req' : 'prd';
       let slug = `${prefix}-${base}`;
       let dup = 2;
       while (fs.existsSync(path.join(catDir, slug + '.md'))) {
@@ -833,7 +948,7 @@ app.post('/api/source-upload', upload.single('file'), async (req, res) => {
 ${text}
 `;
       fs.writeFileSync(path.join(catDir, 'raw', `${slug}-raw.md`), rawFm, 'utf-8');
-      res.json({ success: true, data: { summary: `已沉淀为${type === 'test-report' ? '测试报告(test-reports)' : '项目 Wiki'}：${slug}.md`, slug, uploadType: type, category: type === 'test-report' ? 'test-reports' : 'project-wiki' } });
+      res.json({ success: true, data: { summary: `已沉淀为项目 Wiki：${slug}.md`, slug, uploadType: type, category: 'project-wiki' } });
       return;
     }
 

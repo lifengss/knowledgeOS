@@ -29,8 +29,8 @@ paths:
               properties:
                 type:
                   type: string
-                  enum: [prd, code, defect, report]
-                  description: 数据类型
+                  enum: [prd, requirement, test-report, code, defect, report]
+                  description: 数据类型（test-report 为 JSON 回测报告，自动解析拆分为多条缺陷经验记录）
                 file:
                   type: string
                   format: binary

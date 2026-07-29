@@ -259,6 +259,7 @@ let appState = {
   auditLogs: [],
   brainPages: [],
   brainLoaded: false,
+  lastPage: null,
   stats: {},
   loading: false,
   auditPage: 1,
@@ -1163,6 +1164,12 @@ async function renderPage(page) {
 
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
+
+  // 从其它页面切回「知识库浏览」时使缓存失效，避免看到过期数据（如跨系统上传后）
+  if (page === 'brain' && appState.lastPage && appState.lastPage !== 'brain') {
+    appState.brainLoaded = false;
+  }
+  appState.lastPage = page;
 
   if (pageTemplates[page]) {
     try {
@@ -2324,8 +2331,8 @@ document.getElementById('confirm-import').addEventListener('click', async () => 
       }
       alert(detail);
       importModal.classList.remove('show');
-      if (d.category === 'project-wiki') {
-        refreshBrain('project-wiki');
+      if (d.category === 'project-wiki' || d.category === 'defect-experience') {
+        refreshBrain(d.category);
       } else {
         renderPage('drafts');
       }
